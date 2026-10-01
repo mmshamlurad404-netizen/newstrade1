@@ -4,14 +4,32 @@
 
 | Store | Purpose |
 | :--- | :--- |
-| PostgreSQL | Channels, news, analyses, signals, orders, trades, users, settings |
-| TimescaleDB | OHLCV candles for technical levels and backtesting |
-| pgvector | Embeddings of news for semantic search and deduplication |
-| Redis | Cache, rate-limit counters, and streams for pipelines |
+| PostgreSQL | Accounts, channels, news, signals, orders, trades, evals, settings |
+| TimescaleDB | OHLCV candles for levels, correlation, and backtesting |
+| pgvector | News embeddings for semantic search and clustering |
+| Redis | Cache, counters, and durable streams for pipelines |
 
 ## 2. PostgreSQL schema
 
-### 2.1 channels
+Every write uses an idempotency key, because Redis Streams are at-least-once.
+Use `INSERT ... ON CONFLICT` on the natural keys below.
+
+### 2.1 ingestion_accounts
+
+Supports multiple dedicated Telegram sessions if one account hits limits.
+
+```sql
+CREATE TABLE ingestion_accounts (
+    id             BIGSERIAL PRIMARY KEY,
+    label          TEXT NOT NULL UNIQUE,
+    session_ref    TEXT NOT NULL,
+    is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+    last_flood_wait_at TIMESTAMPTZ,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+### 2.2 channels
 
 ```sql
 CREATE TABLE channels (
@@ -20,15 +38,20 @@ CREATE TABLE channels (
     username        TEXT,
     title           TEXT NOT NULL,
     is_private      BOOLEAN NOT NULL DEFAULT FALSE,
+    redistribute_content BOOLEAN NOT NULL DEFAULT FALSE,
     credibility     NUMERIC(4,3) NOT NULL DEFAULT 0.500,
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    account_id      BIGINT REFERENCES ingestion_accounts(id),
     last_message_id BIGINT,
     last_seen_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
-### 2.2 raw_messages
+`redistribute_content` defaults to false so private-channel text is not shown
+publicly without an explicit decision.
+
+### 2.3 raw_messages
 
 ```sql
 CREATE TABLE raw_messages (
@@ -53,7 +76,7 @@ CREATE INDEX idx_raw_messages_hash ON raw_messages (content_hash);
 CREATE INDEX idx_raw_messages_posted ON raw_messages (posted_at DESC);
 ```
 
-### 2.3 news (grouped, deduplicated events)
+### 2.4 news (clustered, deduplicated events)
 
 ```sql
 CREATE TABLE news (
@@ -69,10 +92,14 @@ CREATE TABLE news (
     certainty        NUMERIC(4,3),
     impact_timeframe TEXT,
     market_scope     TEXT,
+    asset_resolved   BOOLEAN NOT NULL DEFAULT FALSE,
     embedding        vector(1536),
     source_count     INTEGER NOT NULL DEFAULT 1,
+    origin_channel_id BIGINT REFERENCES channels(id),
     first_seen_at    TIMESTAMPTZ NOT NULL,
     last_seen_at     TIMESTAMPTZ NOT NULL,
+    prompt_version   TEXT,
+    model_name       TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -81,19 +108,22 @@ CREATE INDEX idx_news_first_seen ON news (first_seen_at DESC);
 CREATE INDEX idx_news_embedding ON news USING ivfflat (embedding vector_cosine_ops);
 ```
 
-### 2.4 news_sources (corroboration join)
+### 2.5 news_sources (corroboration and provenance)
 
 ```sql
 CREATE TABLE news_sources (
-    news_id       BIGINT NOT NULL REFERENCES news(id),
+    news_id        BIGINT NOT NULL REFERENCES news(id),
     raw_message_id BIGINT NOT NULL REFERENCES raw_messages(id),
-    channel_id    BIGINT NOT NULL REFERENCES channels(id),
-    similarity    NUMERIC(4,3) NOT NULL DEFAULT 1.000,
+    channel_id     BIGINT NOT NULL REFERENCES channels(id),
+    is_origin      BOOLEAN NOT NULL DEFAULT FALSE,
+    similarity     NUMERIC(4,3) NOT NULL DEFAULT 1.000,
     PRIMARY KEY (news_id, raw_message_id)
 );
 ```
 
-### 2.5 signals
+Corroboration counts only rows where `is_origin` is true.
+
+### 2.6 signals with a lifecycle
 
 ```sql
 CREATE TABLE signals (
@@ -103,14 +133,17 @@ CREATE TABLE signals (
     direction         TEXT NOT NULL,
     entry_low         NUMERIC NOT NULL,
     entry_high        NUMERIC NOT NULL,
+    order_type        TEXT NOT NULL DEFAULT 'limit',
     stop_loss         NUMERIC NOT NULL,
     take_profits      NUMERIC[] NOT NULL,
     leverage_suggested INTEGER NOT NULL DEFAULT 1,
     timeframe         TEXT NOT NULL,
     confidence        INTEGER NOT NULL,
+    market_risk_factor NUMERIC(4,3) NOT NULL DEFAULT 1.000,
     rationale         TEXT,
     risk_reward       NUMERIC(6,2),
     status            TEXT NOT NULL DEFAULT 'new',
+    prompt_version    TEXT,
     expires_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -118,7 +151,16 @@ CREATE TABLE signals (
 CREATE INDEX idx_signals_confidence ON signals (confidence DESC, created_at DESC);
 ```
 
-### 2.6 orders
+Signal status lifecycle:
+
+```text
+new -> active -> filled -> closed
+          \-> expired
+          \-> rejected  (risk gate or user)
+          \-> cancelled (entry not filled)
+```
+
+### 2.7 orders
 
 ```sql
 CREATE TABLE orders (
@@ -130,6 +172,7 @@ CREATE TABLE orders (
     exchange_order_id TEXT,
     side             TEXT NOT NULL,
     order_type       TEXT NOT NULL,
+    role             TEXT NOT NULL DEFAULT 'entry',
     quantity         NUMERIC NOT NULL,
     price            NUMERIC,
     status           TEXT NOT NULL DEFAULT 'pending',
@@ -139,7 +182,10 @@ CREATE TABLE orders (
 );
 ```
 
-### 2.7 trades and paper_trades
+`client_order_id` is unique for idempotency. `role` is entry, stop, or
+take_profit so protective orders can be repaired on reconciliation.
+
+### 2.8 trades and paper_trades
 
 ```sql
 CREATE TABLE trades (
@@ -153,6 +199,8 @@ CREATE TABLE trades (
     quantity       NUMERIC NOT NULL,
     pnl            NUMERIC,
     pnl_pct        NUMERIC,
+    fees           NUMERIC,
+    funding        NUMERIC,
     opened_at      TIMESTAMPTZ NOT NULL,
     closed_at      TIMESTAMPTZ,
     close_reason   TEXT
@@ -161,7 +209,7 @@ CREATE TABLE trades (
 
 `paper_trades` uses the same shape and is the default sink in paper mode.
 
-### 2.8 candles (TimescaleDB hypertable)
+### 2.9 candles (TimescaleDB hypertable)
 
 ```sql
 CREATE TABLE candles (
@@ -178,7 +226,40 @@ CREATE TABLE candles (
 SELECT create_hypertable('candles', 'ts');
 ```
 
-### 2.9 channel_stats (weekly credibility inputs)
+### 2.10 prompt_versions and analysis evaluation
+
+```sql
+CREATE TABLE prompt_versions (
+    id          TEXT PRIMARY KEY,
+    template    TEXT NOT NULL,
+    model_name  TEXT NOT NULL,
+    notes       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE eval_labels (
+    id               BIGSERIAL PRIMARY KEY,
+    raw_message_id   BIGINT REFERENCES raw_messages(id),
+    label_coins      TEXT[],
+    label_event_type TEXT,
+    label_sentiment  TEXT,
+    label_tradable   BOOLEAN,
+    is_adversarial   BOOLEAN NOT NULL DEFAULT FALSE,
+    labeled_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE eval_runs (
+    id             BIGSERIAL PRIMARY KEY,
+    prompt_version TEXT REFERENCES prompt_versions(id),
+    coin_f1        NUMERIC(5,4),
+    event_accuracy NUMERIC(5,4),
+    tradable_f1    NUMERIC(5,4),
+    injection_pass BOOLEAN,
+    run_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+### 2.11 channel_stats (weekly credibility inputs)
 
 ```sql
 CREATE TABLE channel_stats (
@@ -193,16 +274,19 @@ CREATE TABLE channel_stats (
 );
 ```
 
+Only originator signals count toward a channel's accuracy.
+
 ## 3. Redis streams
 
 | Stream | Producer | Consumer | Payload |
 | :--- | :--- | :--- | :--- |
-| `raw_news` | Ingestor | Analyzer | normalized message with metadata |
-| `analyzed_news` | Analyzer | Signal engine | structured analysis plus enrichment |
+| `raw_news` | Ingestor | Fast path, analyzer | normalized message with metadata |
+| `raw_news_dlq` | Any | Ops | failed payload plus error |
+| `analyzed_news` | Analyzer | Signal engine | analysis plus enrichment |
 | `signals` | Signal engine | API, executor | full signal object |
 | `orders` | Executor | API, audit | order state transitions |
 
-Use consumer groups so each stage can scale horizontally and replay on failure.
+Use consumer groups plus `XACK`; on repeated failure move to the DLQ.
 
 ```text
 XADD raw_news * channel_id 123 message_id 456 text "..."
@@ -217,8 +301,6 @@ XACK raw_news analyzers <id>
 
 Query: `coin`, `event_type`, `urgency`, `channel_id`, `since`, `limit`.
 
-Response item:
-
 ```json
 {
   "id": 1,
@@ -229,6 +311,7 @@ Response item:
   "sentiment_score": 0.82,
   "urgency": "high",
   "source_count": 4,
+  "origin_channel": "ExampleChannel",
   "first_seen_at": "2026-01-01T10:00:00Z"
 }
 ```
@@ -237,35 +320,40 @@ Response item:
 
 Query: `confidence_min`, `direction`, `asset`, `status`, `limit`.
 
-Response item:
-
 ```json
 {
   "signal_id": "uuid",
   "asset": "SOL/USDT",
   "direction": "LONG",
-  "entry_zone": [145.2, 146.0],
+  "entry_low": 145.2,
+  "entry_high": 146.0,
+  "order_type": "limit",
   "stop_loss": 143.5,
   "take_profits": [148.0, 150.5, 155.0],
   "leverage_suggested": 3,
   "timeframe": "1h",
   "confidence": 78,
+  "market_risk_factor": 0.8,
+  "status": "new",
   "risk_reward": 2.8,
-  "rationale": "Binance listing plus corroboration from four channels",
+  "rationale": "Binance listing plus corroboration from four origin channels",
   "expires_at": "2026-01-01T14:00:00Z"
 }
 ```
 
-## 5. Authentication and authorization
+## 5. Authentication and authorization (v1 = single operator)
 
-- Users authenticate with email plus a one-time code or OAuth.
-- API tokens are short-lived; refresh tokens rotate.
-- Trade execution endpoints require re-authentication or a 2FA confirm.
-- Per-user settings include trading mode, risk limits, and muted channels.
+- v1: a small number of operator accounts with strong auth and 2FA.
+- Short-lived session tokens; refresh tokens rotate.
+- `execute`, `flatten`, and `kill-switch` require re-auth or 2FA.
+- Per-account settings: mode, risk limits, muted channels.
+- Multi-user tenancy is a later product with a separate design.
 
 ## 6. Data retention
 
-- Raw messages: keep indefinitely for backtesting, or archive after 12 months.
-- Candles: keep 1-minute data for 90 days, 1-hour data indefinitely.
-- Audit logs for orders and trades: keep indefinitely.
-- Embeddings: recompute if the model changes.
+- Raw messages: keep for backtesting; archive after 12 months if needed.
+- Private-channel content: internal by default; never redistributed unless the
+  channel explicitly allows it.
+- Candles: 1-minute for 90 days, 1-hour indefinitely.
+- Orders and trades audit rows: keep indefinitely.
+- Embeddings: recompute when the embedding model changes.

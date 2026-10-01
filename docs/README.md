@@ -49,11 +49,15 @@ Key rules to keep the feed working:
    personal account.
 2. Be a **member of every channel you read**. Read only channels you are allowed
    to access.
-3. Listen with `events.NewMessage` for real time, and run a periodic history
-   backfill for missed messages.
-4. Handle `FloodWait` automatically and never run more than one client session
-   per account.
-5. Deduplicate aggressively: most crypto channels forward the same news.
+3. Listen with `events.NewMessage` for real time, and run a gap-recovery
+   backfill using `min_id` on every reconnect, otherwise messages posted while
+   offline are lost.
+4. Handle `FloodWait` and `PeerFloodError`; never run more than one client
+   session per account, and throttle channel joins to avoid a ban.
+5. Deduplicate and cluster aggressively: most crypto channels forward the same
+   news, and forwards must not inflate corroboration.
+6. Keep private-channel content internal by default; do not redistribute it
+   without explicit permission.
 
 ## Documents
 
@@ -66,18 +70,21 @@ Key rules to keep the feed working:
 | `05-phase-4-app-and-deployment.md` | Phase 4: FastAPI, Flutter app, notifications, Docker deployment |
 | `06-data-model-and-api.md` | PostgreSQL schema, Redis streams, REST and WebSocket API |
 | `07-confidence-risk-and-backtesting.md` | Confidence formula, source credibility, risk rules, backtesting |
-| `08-roadmap-costs-and-security.md` | Phase timeline, KPIs, cost estimate, security and legal notes |
+| `08-roadmap-costs-and-security.md` | Phase timeline, go/no-go gates, KPIs, costs, security and legal |
 | `09-implementation-guide.md` | Concrete step-by-step build order and starter code layout |
+| `10-critical-review-and-design-decisions.md` | Decision log: problems found and the reasoning behind the plan |
 
 ## Reading order
 
 Start with `01`, then implement in phase order `02` -> `03` -> `04` -> `05`.
-Use `06`, `07`, `08`, `09` as references while implementing.
+Use `06`, `07`, `08`, `09` as references while implementing. Read `10` to
+understand why the plan makes the trade-offs it does.
 
 ## Scope of first release (MVP)
 
+- Single operator, self-hosted. Multi-user hosting is a later product.
 - Ingest 3-10 channels first, then scale to 100+.
-- News feed with sentiment and coin filters.
-- Position extraction and confidence scoring.
+- Ship a read-only news feed early (Phase 2) before any trading work.
+- Position extraction with a calibrated confidence score.
 - Paper trading only, with a full audit log.
-- Live trading is a later, explicitly enabled phase.
+- Live trading is a later, explicitly enabled phase behind go/no-go gates.

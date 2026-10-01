@@ -6,7 +6,7 @@ infrastructure to run everything reliably.
 ## 1. Backend API (FastAPI)
 
 The API is the only bridge between the database and the apps. It also exposes
-manual trade execution and real-time push.
+manual actions and real-time push.
 
 ### 1.1 Endpoints
 
@@ -16,11 +16,12 @@ manual trade execution and real-time push.
 | GET | `/api/news/{id}` | News detail with analysis and source messages |
 | GET | `/api/signals` | List signals, filter by confidence and direction |
 | GET | `/api/signal/{id}` | Signal detail with rationale and source news |
-| POST | `/api/signal/{id}/execute` | Execute a signal manually (auth + confirm) |
+| POST | `/api/signal/{id}/execute` | Execute a signal (auth plus explicit confirm) |
+| POST | `/api/portfolio/flatten` | Flatten all positions (dangerous, 2FA) |
+| POST | `/api/kill-switch` | Enable or disable the kill switch |
 | GET | `/api/portfolio` | Open positions and PnL from the exchange |
 | GET | `/api/trades` | Historical trades and paper trades |
 | GET | `/api/channels` | Tracked channels with credibility scores |
-| POST | `/api/channels` | Add or remove a tracked channel |
 | GET | `/api/health` | Liveness and stage lag metrics |
 | WS | `/ws/news` | Real-time news push |
 | WS | `/ws/signals` | Real-time signal push |
@@ -47,60 +48,88 @@ async def list_signals(
     )
 ```
 
-### 1.3 WebSocket push
+### 1.3 WebSocket push with authentication
+
+Do not expose an unauthenticated WebSocket that leaks trading data.
 
 ```python
 @router.websocket("/ws/signals")
-async def ws_signals(ws: WebSocket):
+async def ws_signals(ws: WebSocket, token: str = Query(...)):
+    if not auth.verify(token):
+        await ws.close(code=4401)
+        return
     await ws.accept()
     async for signal in pubsub.subscribe("signals"):
-        await ws.send_json(signal)
+        await ws.send_json(serialize(signal))
 ```
 
-## 2. Mobile and desktop app (Flutter)
+Add heartbeat/ping and reconnect-with-backoff on the client.
+
+## 2. Secrets and key custody (critical)
+
+**Exchange API keys never leave the server.** The Flutter app must not store
+exchange keys, even in OS secure storage. If the client is compromised, it must
+not be able to move funds.
+
+- Client authenticates to your backend and receives a short-lived session token.
+- The backend holds exchange keys, encrypted at rest, and is the only component
+  that calls the exchange.
+- Use exchange keys with trading enabled only if needed, **withdrawals disabled**,
+  and an IP allowlist.
+- Store secrets in a secrets manager or encrypted Docker secrets.
+- Add 2FA or re-authentication on `execute`, `flatten`, and `kill-switch`.
+
+## 3. Mobile and desktop app (Flutter)
 
 One Dart codebase builds for Windows and Android.
 
-### 2.1 Screens
+### 3.1 Screens
 
-1. **News feed**: real-time list, filters by coin, urgency, channel; shows
-   sentiment badges and a tap-through to the source message.
+1. **News feed**: real-time list with filters by coin, urgency, channel;
+   sentiment badges; tap-through to source messages.
 2. **Signal card**: asset, direction badge (green LONG, red SHORT), confidence
-   bar, entry zone, stop loss, take profits, rationale, source links, and an
-   "Execute" button (disabled in paper mode).
+   bar, entry zone, stop loss, take profits, rationale, source links, expiry
+   countdown, and an Execute button (disabled in paper mode). Show a
+   "fast alert, unverified" state for fast-path events.
 3. **Portfolio**: open positions, unrealized and realized PnL, trade history,
-   pulled from the exchange through the backend.
-4. **Channels**: list of tracked channels with credibility score and per-channel
-   performance.
-5. **Settings**: API keys (stored in the OS secure storage), risk settings, push
-   preferences, and the global trading mode toggle.
+   from the exchange through the backend.
+4. **Channels**: tracked channels with credibility score and performance.
+5. **Settings**: risk settings, notification preferences, trading mode toggle,
+   and the kill switch.
 
-### 2.2 State and networking
+### 3.2 Trading safety in the UI
 
-- HTTP client with retry and auth token.
-- WebSocket connection for live updates with automatic reconnect.
-- Local cache so the feed is readable offline.
+- Default mode is Paper; switching to live requires a deliberate confirmation.
+- The kill switch is always one tap away and clearly visible in live mode.
+- Show current open risk and remaining daily loss budget at the top.
+- Never show an "auto trade" toggle without a max-notional cap alongside it.
 
-### 2.3 Build targets
+### 3.3 Build targets
 
 ```bash
 flutter build windows
 flutter build apk --release
 ```
 
-## 3. Push notifications
+## 4. Notifications
 
-- Use Firebase Cloud Messaging (FCM) for Android and Windows.
-- Backend publishes to FCM when a signal crosses the confidence threshold
-  (default 75) or when a high-urgency news item arrives.
-- Users can mute per channel, per coin, or globally.
+FCM officially targets Android, iOS, and web. **Windows desktop is not
+officially supported by Flutter's FCM plugin.** Plan for this:
 
-Notification payload includes asset, direction, confidence, and a deep link to
-the signal card.
+- Android: Firebase Cloud Messaging.
+- Windows: local notifications driven by the existing WebSocket connection
+  (for example a Windows toast via a notification package), or a push provider
+  that supports Windows. Fall back to the WebSocket-based toast.
+- Always also show in-app badges so a missed OS notification is not a missed
+  signal.
 
-## 4. Deployment
+Backend triggers a notification when a signal crosses the confidence threshold
+(default 75) or a high-urgency news item arrives. Users can mute per channel,
+coin, or globally. Debounce and group to avoid notification fatigue.
 
-### 4.1 Docker Compose
+## 5. Deployment
+
+### 5.1 Docker Compose
 
 File: `deploy/docker-compose.yml`
 
@@ -112,32 +141,47 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/home/postgres/pgdata/data
-    ports:
-      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+    restart: unless-stopped
 
   ingestor:
     build: ../backend
     command: ["python", "-m", "app.services.ingestion.listener"]
     env_file: ../backend/.env
-    depends_on: [redis, postgres]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
 
   analyzer:
     build: ../backend
     command: ["python", "-m", "app.services.analysis.worker"]
     env_file: ../backend/.env
-    depends_on: [redis, postgres]
+    restart: unless-stopped
 
   signaler:
     build: ../backend
     command: ["python", "-m", "app.services.signals.worker"]
     env_file: ../backend/.env
-    depends_on: [redis, postgres]
+    restart: unless-stopped
+
+  executor:
+    build: ../backend
+    command: ["python", "-m", "app.services.trading.worker"]
+    env_file: ../backend/.env
+    restart: unless-stopped
 
   api:
     build: ../backend
@@ -146,19 +190,29 @@ services:
     ports:
       - "8080:8080"
     depends_on: [postgres, redis]
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:
 ```
 
-### 4.2 Environments and secrets
+### 5.2 Deployment hardening
 
-- Keep `.env` out of git. Provide `.env.example` with placeholders only.
-- Use a secrets manager or Docker secrets in production.
-- Store exchange API keys encrypted at rest; never log them.
-- Use read-only API keys where possible; disable withdrawal permission always.
+- Run migrations as a one-shot job before starting workers.
+- Set `restart: unless-stopped` and container memory/CPU limits.
+- Add log rotation and structured JSON logs with correlation ids.
+- Expose only the API port; keep Postgres and Redis on the internal network.
+- Put the API behind TLS (reverse proxy) and require auth on all routes.
+- Do not run the executor with live keys until the go-live gates in `08` pass.
 
-### 4.3 Server sizing
+### 5.3 Environments and secrets
+
+- `.env` is never committed; provide `.env.example` with placeholders.
+- Development, staging, and production use separate keys and databases.
+- Staging runs real ingestion but paper trading only.
+
+### 5.4 Server sizing
 
 | Stage | Suggested VPS | Notes |
 | :--- | :--- | :--- |
@@ -166,51 +220,54 @@ volumes:
 | Staging | 4 vCPU, 8 GB | Real ingestion, paper trading |
 | Production | 8 vCPU, 16 GB | 100+ channels, low latency |
 
-Consider a Tokyo or Frankfurt region close to exchange matching engines if
-latency matters for the execution path.
+Consider a region close to the exchange matching engines if execution latency
+matters.
 
-### 4.4 Observability
+### 5.5 Observability and alerting
 
-- Structured JSON logs with correlation ids per message.
-- Metrics: per-stage queue lag, LLM latency and cost, signal counts, order
-  failures.
-- Alerts: ingestor disconnected, queue backlog growing, risk limit hit, daily
-  loss limit triggered.
+- Metrics: per-stage queue lag, LLM latency/cost, signal counts, order failures,
+  reconnect count, DLQ size.
+- Alerts: ingestor disconnected, no messages from a channel, queue backlog,
+  risk limit hit, daily loss stop, executor position mismatch.
 
-### 4.5 Backups
+### 5.6 Backups
 
-- Nightly Postgres dumps to object storage.
+- Nightly Postgres dumps to object storage; test the restore.
 - Session file and secrets backed up securely, separately from code.
-- Test the restore procedure at least once.
 
-## 5. Development roadmap
+## 6. Development roadmap
 
 | Phase | Duration | Deliverable |
 | :--- | :--- | :--- |
 | Phase 0 | Week 1 | Telegram credentials, dedicated account, channel list |
-| Phase 1 | Weeks 2-3 | Ingestor writing normalized messages to the queue and DB |
-| Phase 2 | Weeks 4-6 | AI analysis working; news feed shows sentiment |
-| Phase 3 | Weeks 7-10 | Position extraction, confidence, paper trading |
-| Phase 4 | Weeks 11-14 | Flutter app on Windows and Android, notifications |
-| Phase 5 | Weeks 15-18 | Backtesting report, tuning, staging at scale |
-| Launch | Week 19+ | Small-capital live trading with monitoring |
+| Phase 1 | Weeks 2-3 | Ingestor writing normalized messages to queue and DB |
+| Phase 2 | Weeks 4-6 | Analysis plus a read-only news app (ship early) |
+| Phase 3 | Weeks 7-10 | Signals, confidence, risk, paper trading |
+| Phase 4 | Weeks 11-13 | App on Windows and Android, notifications, deployment |
+| Phase 5 | Weeks 14-18 | Backtesting, tuning, staging at scale |
+| Phase 6 | Week 19+ | Small-capital live trading with monitoring |
 
-Full detail, KPIs, and costs are in `08-roadmap-costs-and-security.md`.
+Note the change from the first draft: ship a read-only news app during Phase 2
+to validate the feed early, before building trading.
+
+Full gates, KPIs, and costs are in `08-roadmap-costs-and-security.md`.
 
 ## Deliverables for Phase 4
 
-- [ ] FastAPI service with REST and WebSocket endpoints.
+- [ ] FastAPI service with authenticated REST and WebSocket endpoints.
 - [ ] Flutter app building for Windows and Android.
-- [ ] Push notifications through FCM.
-- [ ] Docker Compose deployment with Postgres, Redis, and workers.
+- [ ] Android push plus a Windows notification fallback.
+- [ ] Docker Compose deployment with migrations, health checks, restarts.
 - [ ] Observability dashboards and alerts.
 - [ ] Backup and restore procedure verified.
 
 ## Phase 4 acceptance tests
 
-1. A new high-confidence signal appears in the app in under 5 seconds via
+1. A new high-confidence signal appears in the app within 5 seconds via
    WebSocket.
-2. A push notification arrives on Android when a signal crosses the threshold.
+2. An Android push arrives when a signal crosses the threshold, and a Windows
+   toast appears as well.
 3. The Windows build connects, shows the feed, and can execute a paper trade.
 4. Killing the ingestor container triggers an alert; restarting it resumes
    ingestion without data loss.
+5. The app cannot access exchange keys or place an order without the backend.

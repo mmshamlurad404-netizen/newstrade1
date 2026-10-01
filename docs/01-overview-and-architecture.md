@@ -7,146 +7,204 @@ A Windows and Android trading assistant that:
 1. Listens to 50-500+ Telegram channels (public and private) in real time.
 2. Normalizes crypto news into a single clean, structured stream.
 3. Analyzes each item with AI for coin, event type, sentiment, and urgency.
-4. Extracts an actionable position (LONG/SHORT, entry zone, stop loss, take
-   profits, suggested leverage, time horizon).
+4. Extracts an actionable position (LONG/SHORT, entry, stop loss, take profits,
+   suggested leverage, time horizon).
 5. Scores confidence using source credibility, corroboration, sentiment
-   strength, and market context.
-6. Routes signals through a risk manager to a crypto exchange using CCXT.
-7. Presents everything in a desktop and mobile app with push notifications.
+   strength, and model certainty.
+6. Applies a deterministic risk gate, then optionally places the order on an
+   exchange through CCXT.
+7. Presents everything in a desktop and mobile app with notifications.
 
-## 2. Goals and Non-Goals
+## 2. Scope decision (read this first)
 
-### Goals
+**Build a single-user, self-hosted tool first.** One operator, one set of
+exchange keys, one risk budget. This removes multi-tenancy, per-user auth,
+billing, and data-isolation work from the critical path.
 
-- Real-time ingestion with under 5 seconds from channel post to app display.
-- Explainable signals: every trade shows the source news and a rationale.
-- Strict risk management: no single signal can exceed the configured risk.
-- Works offline for review: all news and signals are stored and searchable.
+Multi-user (a hosted service for other people) is a later product with a
+different threat model, cost model, and legal review. It is explicitly out of
+scope for v1. The docs below mention users; read that as "later".
 
-### Non-Goals (for the first release)
+## 3. Honest latency and edge analysis
 
-- HFT or sub-second arbitrage.
-- On-chain analytics or wallet tracking.
-- Financial advice. This is a decision-support tool.
+This is a news-following tool, not a colocated HFT system. Be realistic:
 
-## 3. End-to-End Architecture
+| Event class | Typical move | Our realistic latency | Can we capture it? |
+| :--- | :--- | :--- | :--- |
+| Major exchange listing | seconds to minutes | 2-6 s after we see the post | Partially, and only if the channel posts early. Often too late. |
+| Hack / exploit | seconds to minutes | 2-6 s | Partially. Higher value in avoiding longs than entering shorts. |
+| Regulation / macro | hours to days | seconds to minutes | Yes. Slower-moving news is where this tool has an edge. |
+| Partnership / adoption | hours to days | seconds to minutes | Yes. |
+| Whale movement | minutes | seconds | Marginal. |
+
+Consequences for design:
+
+1. **Tiered processing.** A fast rule/classifier path fires an immediate alert
+   (and optionally a pre-approved action) for high-precision templates such as
+   "will list <TOKEN>", while the full LLM analysis runs asynchronously.
+2. **Do not promise speed on listing news.** The value proposition is
+   aggregation, deduplication, credibility weighting, and discipline, not being
+   first.
+3. **Latency budget is a tracked metric** from post timestamp to alert, and from
+   alert to order. If it grows, investigate before scaling channels.
+
+## 4. Design principles
+
+1. **The LLM advises; deterministic code decides.** The model classifies and
+   scores. Position size, leverage, and order placement are computed by
+   deterministic code and gated by the risk manager. The LLM can never directly
+   place an order or override a limit.
+2. **Treat all message text as untrusted input.** Telegram content can contain
+   prompt-injection attempts to manipulate the model. See `03`.
+3. **Signal quality and market risk are separate numbers.** Confidence measures
+   how good the signal is. A market-risk factor scales position size and can
+   veto; it does not silently cap confidence. See `07`.
+4. **At-least-once with idempotent consumers.** The queue guarantees delivery,
+   not uniqueness. Every write is upserted on a natural key.
+5. **Explainability.** Every signal links to the exact source messages and the
+   exact code path and prompt version that produced it.
+6. **Paper before live, always.** Live trading is a separate, explicitly enabled
+   mode with its own limits.
+
+## 5. Threat model (summary)
+
+| Threat | Impact | Mitigation |
+| :--- | :--- | :--- |
+| Prompt injection in a channel post | Manipulated signal | Data/instruction separation, schema validation, anomalous-output detector, deterministic gate |
+| Fabricated news / pump | Loss | Corroboration, credibility weighting, market cross-checks |
+| Compromised exchange key | Fund loss | Server-side only, no withdrawal permission, IP allowlist, least privilege |
+| Telegram account ban | Feed loss | Dedicated account, join throttling, backoff, no spammy behavior |
+| Poison message crashing a worker | Pipeline stall | Dead-letter stream, schema validation, alerting |
+| Stale channel silently dead | Missing news | Per-channel heartbeat and stale detector |
+
+## 6. End-to-end architecture
 
 ```mermaid
 flowchart TD
-    CH["Telegram Channels: public and private"] --> CL["Telethon user client"]
-    CL --> NORM["Normalizer and dedup"]
-    NORM --> MEDIA["Media OCR and Vision"]
-    NORM --> Q["Redis Stream: raw_news"]
+    CH["Telegram channels public and private"] --> CL["Telethon user client"]
+    CL --> NORM["Normalize dedup and idempotent store"]
+    NORM --> MEDIA["Media OCR and vision"]
+    NORM --> Q["Redis stream raw_news"]
     MEDIA --> Q
-    Q --> FILT["Fast filter: relevance"]
+    Q --> FAST["Fast path classifier and templates"]
+    FAST -->|"high precision event"| ALERT["Immediate alert and optional pre-approved action"]
+    Q --> FILT["Relevance filter"]
     FILT --> LLM["LLM analysis worker"]
-    LLM --> ENRICH["Context enrichment: price and market cap"]
+    FAST --> LLM
+    LLM --> VAL["Schema validation and injection checks"]
+    VAL --> ENRICH["Context enrichment price and corroboration"]
     ENRICH --> SIG["Signal and confidence engine"]
-    SIG --> DB[("PostgreSQL + TimescaleDB")]
-    DB --> API["FastAPI REST + WebSocket"]
-    API --> APP["Flutter app: Windows and Android"]
-    SIG --> RISK["Risk manager"]
+    SIG --> RISK["Deterministic risk gate"]
+    RISK --> DB[("PostgreSQL + TimescaleDB + pgvector")]
+    SIG --> DB
+    DB --> API["FastAPI REST and WebSocket"]
+    API --> APP["Flutter app Windows and Android"]
     RISK --> EXEC["Order executor"]
-    EXEC --> EX["Exchanges via CCXT: Binance, Bybit, OKX"]
-    API --> FCM["FCM push notifications"]
+    EXEC --> EX["Exchanges via CCXT"]
+    API --> NOTIFY["Notifications"]
 ```
 
-## 4. Component Responsibilities
+## 7. Component responsibilities
 
 | Component | Responsibility | Technology |
 | :--- | :--- | :--- |
-| Ingestor | Read messages from channels, backfill history, download media | Python, Telethon |
-| Normalizer | Clean text, detect language, translate, deduplicate | Python, fastText, LLM |
-| Queue | Buffer raw items between stages, replay and backpressure | Redis Streams |
+| Ingestor | Read messages, close reconnect gaps, download media | Python, Telethon |
+| Normalizer | Clean, translate, cluster duplicates, store idempotently | Python, fastText, LLM |
+| Queue | Durable buffer, replay, backpressure, dead letters | Redis Streams |
 | Analyzer | Relevance filter, LLM structured analysis, enrichment | Python, LLM API, FinBERT |
-| Signal engine | Convert analysis into a position with confidence | Python |
-| Risk manager | Position sizing, limits, kill switch | Python |
-| Executor | Place and manage orders, set SL/TP on exchange | CCXT Pro |
-| API | Serve news and signals, push real time, execute manual trades | FastAPI, WebSockets |
-| App | News feed, signal cards, portfolio, settings | Flutter |
-| Storage | News, signals, trades, prices, vectors | PostgreSQL, TimescaleDB, pgvector |
+| Signal engine | Convert analysis to a position with confidence | Python |
+| Risk manager | Position sizing, limits, correlation, kill switch | Python |
+| Executor | Place and manage orders, SL/TP, reconciliation | CCXT Pro |
+| API | Serve news/signals, push real time, trigger actions | FastAPI, WebSockets |
+| App | Feed, signal cards, portfolio, settings, kill switch | Flutter |
+| Storage | News, signals, trades, candles, vectors | PostgreSQL, TimescaleDB, pgvector |
 
-## 5. Tech Stack Decision
+## 8. Tech stack decision
 
 | Layer | Recommendation | Reason |
 | :--- | :--- | :--- |
-| Ingestion | Python + Telethon (MTProto user client) | Only MTProto user API can read private channels. Bot API is not sufficient. |
-| Backend API | FastAPI + WebSockets | Async, fast, good for real-time push |
-| Database | PostgreSQL + TimescaleDB + pgvector | Relational data, time-series prices, semantic search in one engine |
-| Cache and queue | Redis + Redis Streams | Fast cache and durable stream with consumer groups |
-| AI and NLP | LLM API + FinBERT + spaCy | LLM for reasoning, FinBERT for cheap fast sentiment |
-| Trading | CCXT Pro | One interface for many exchanges, WebSocket price feeds |
-| Desktop app | Flutter Desktop | Single codebase with Android |
-| Android app | Flutter | Same codebase as desktop |
-| Infra | Docker + Docker Compose | Reproducible deployment on a VPS |
+| Ingestion | Python + Telethon (MTProto user client) | Only the user API can read private channels |
+| Backend | FastAPI + WebSockets | Async, fast, real-time push |
+| Database | PostgreSQL + TimescaleDB + pgvector | Relational, time-series, and vectors in one engine |
+| Cache/queue | Redis + Redis Streams | Cache, counters, durable streams with consumer groups |
+| AI/NLP | LLM API + FinBERT + spaCy | LLM reasoning, cheap fast sentiment, entity rules |
+| Trading | CCXT Pro | One interface for many exchanges and price feeds |
+| App | Flutter (Windows + Android) | One Dart codebase |
+| Infra | Docker + Docker Compose | Reproducible deployment |
 
-### Why Flutter for both platforms
+Why one database: operating a single Postgres with Timescale and pgvector is
+simpler than running a separate vector database and time-series store.
 
-One Dart codebase targets Windows and Android, plus web if needed later. The
-alternative (Electron for Windows + React Native for Android) doubles the UI
-work and should only be chosen if the team is already React-heavy.
+## 9. Throughput assumption (size the system)
 
-## 6. Core Concepts
+Example: 300 active channels averaging 40 messages/day = 12,000/day, about 8
+messages/minute on average, with bursts to 100+/minute during market events.
 
-1. **Source credibility score**: every channel has a weight from 0.0 to 1.0
-   based on its historical accuracy, updated weekly.
-2. **Signal confidence**: a 0-100 score combining source weight, corroboration,
-   LLM certainty, and sentiment strength, adjusted by market volatility.
-3. **Event type**: the classification of news (listing, hack, partnership,
-   regulation, unlock, whale movement, macro, other).
-4. **Paper first**: never trade live before 4-6 weeks of paper trading and a
-   completed backtest.
-5. **Explainability**: every signal links back to the exact messages that
-   produced it.
+- After dedup and relevance filtering, expect 20-40% to reach the LLM: roughly
+  2-4 LLM calls/minute average.
+- At ~1,500 tokens per call and a cheap model, this is a few dollars per day.
+- Peak load drives worker count and rate limits, not average load.
 
-## 7. Repository Layout (planned)
+If these assumptions differ by 10x, revisit the queue sizing and LLM cost model.
+
+## 10. Core concepts
+
+1. **Source credibility**: channel weight 0.0-1.0, updated weekly from realized
+   outcomes. Forwarders are not credited as originators.
+2. **Signal confidence**: 0-100 quality score, calibrated against outcomes.
+3. **Market-risk factor**: separate 0.0-1.0 multiplier applied to position size,
+   with hard veto conditions.
+4. **Event type**: listing, delisting, hack, partnership, regulation, unlock,
+   whale_movement, macro, adoption, other.
+5. **Paper first**: 4-6 weeks of paper trading plus a passing backtest before
+   live trading.
+6. **Explainability**: every signal traces to source messages, prompt version,
+   and code version.
+
+## 11. Repository layout (planned)
 
 ```text
 newstrade1/
-  docs/                     # this planning documentation
+  docs/
   backend/
     app/
-      api/                  # FastAPI routers and websockets
-      core/                 # config, logging, security
-      models/               # SQLAlchemy models
-      schemas/              # Pydantic schemas
+      api/          # FastAPI routers and websockets
+      core/         # config, logging, security, feature flags
+      models/       # SQLAlchemy models
+      schemas/      # Pydantic schemas
       services/
-        ingestion/          # Telethon client, backfill, media
-        analysis/           # filters, LLM client, prompts
-        signals/            # signal and confidence engine
-        trading/            # risk manager, executor, exchange adapters
-    alembic/                # database migrations
+        ingestion/  # telethon client, backfill, reconnect, media
+        analysis/   # filters, fast path, llm client, prompts, validators
+        signals/    # signal + confidence engine
+        trading/    # risk manager, executor, exchange adapters
+    alembic/        # migrations
     tests/
     pyproject.toml
     Dockerfile
-  frontend/                 # Flutter app
+  frontend/         # Flutter app
   deploy/
     docker-compose.yml
     .env.example
   scripts/
 ```
 
-See `09-implementation-guide.md` for the build order.
+## 12. Success metrics
 
-## 8. Environments
+- Ingestion latency: post to database under 5 s (p95).
+- Reconnect gap: zero missed messages after a reconnect (verified by min_id).
+- Analysis accuracy: coin extraction F1 and event-type accuracy on a labeled set.
+- Confidence calibration: realized win rate tracks the confidence bucket.
+- Cost: under a few cents per analyzed message.
+- Risk: zero limit breaches; daily loss stop respected.
 
-| Environment | Purpose | Notes |
-| :--- | :--- | :--- |
-| local | Development | Docker Compose with Postgres and Redis |
-| staging | Paper trading | Real ingestion, fake money, full logging |
-| production | Live trading | Only after staging KPIs are met |
+## 13. Legal, privacy and risk warning
 
-## 9. Success Metrics
-
-- Ingestion latency: post to database under 5 seconds at the 95th percentile.
-- Analysis cost: under a few cents per message at production volume.
-- Signal precision: win rate and profit factor measured in paper trading.
-- Availability: ingestor uptime above 99% with automatic reconnect.
-
-## 10. Legal and Risk Warning
-
-- You must use your own Telegram account session to read private channels you
-  are a member of. Scraping channels you cannot access violates Telegram terms.
-- This software is not financial advice. Always show a disclaimer in the app.
-- Use strict risk management. Cap risk per trade at 1-2% of account equity.
-- Respect exchange terms of service and local regulations.
+- Use your own Telegram account session and only read channels you are allowed
+  to access. Scraping channels you cannot access violates Telegram terms.
+- **Do not redistribute private channel content.** Displaying private channel
+  text in an app can breach the channel's rules and copyright. Keep private
+  content internal by default; if a channel is redistributed, make that an
+  explicit per-channel setting and check its terms.
+- This software is not financial advice. Show a disclaimer in the app.
+- Cap risk per trade at 1-2% of equity. Derivatives rules vary by jurisdiction;
+  gate futures trading by the user's region.
