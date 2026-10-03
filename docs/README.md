@@ -75,6 +75,7 @@ Key rules to keep the feed working:
 | `10-critical-review-and-design-decisions.md` | Decision log: problems found and the reasoning behind the plan |
 | `11-phase-1-task-list.md` | Concrete Phase 1 build tasks and gate G1 |
 | `12-phase-2-task-list.md` | Concrete Phase 2 build tasks and gate G2 |
+| `13-phase-3-task-list.md` | Concrete Phase 3 build tasks and gates G3-G5 |
 
 ## Reading order
 

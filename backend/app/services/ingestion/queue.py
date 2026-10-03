@@ -7,6 +7,8 @@ from app.core.config import settings
 RAW_STREAM = "raw_news"
 CLUSTERED_STREAM = "clustered_news"
 ANALYZED_STREAM = "analyzed_news"
+SIGNALS_STREAM = "signals"
+ORDERS_STREAM = "orders"
 DLQ_STREAM = "dlq"
 FAST_ALERTS_STREAM = "fast_alerts"
 CONSUMER_GROUP = "pipeline"
@@ -19,7 +21,7 @@ def get_client() -> redis.Redis:
 
 
 async def ensure_groups() -> None:
-    for stream in (RAW_STREAM, CLUSTERED_STREAM, ANALYZED_STREAM):
+    for stream in (RAW_STREAM, CLUSTERED_STREAM, ANALYZED_STREAM, SIGNALS_STREAM):
         try:
             await _client.xgroup_create(
                 stream, CONSUMER_GROUP, id="0", mkstream=True
@@ -47,6 +49,14 @@ async def publish_analyzed(item: dict) -> str:
 
 async def publish_fast_alert(item: dict) -> str:
     return await _publish(FAST_ALERTS_STREAM, item)
+
+
+async def publish_signal(item: dict) -> str:
+    return await _publish(SIGNALS_STREAM, item)
+
+
+async def publish_order(item: dict) -> str:
+    return await _publish(ORDERS_STREAM, item)
 
 
 async def publish_dlq(item: dict, error: str) -> str:

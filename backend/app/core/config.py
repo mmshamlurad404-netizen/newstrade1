@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     fast_path_enabled: bool = True
 
     trading_mode: str = "paper"
+    default_exchange: str = "binance"
+    paper_equity: float = 10000.0
     confidence_min: int = 60
     max_daily_loss_pct: float = 3.0
     max_leverage: int = 5
