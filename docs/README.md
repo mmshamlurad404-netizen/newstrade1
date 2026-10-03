@@ -73,6 +73,8 @@ Key rules to keep the feed working:
 | `08-roadmap-costs-and-security.md` | Phase timeline, go/no-go gates, KPIs, costs, security and legal |
 | `09-implementation-guide.md` | Concrete step-by-step build order and starter code layout |
 | `10-critical-review-and-design-decisions.md` | Decision log: problems found and the reasoning behind the plan |
+| `11-phase-1-task-list.md` | Concrete Phase 1 build tasks and gate G1 |
+| `12-phase-2-task-list.md` | Concrete Phase 2 build tasks and gate G2 |
 
 ## Reading order
 

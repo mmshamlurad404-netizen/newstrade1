@@ -18,7 +18,7 @@ from app.services.ingestion.queue import (
     close,
     ensure_groups,
     get_client,
-    publish_analyzed,
+    publish_clustered,
     publish_dlq,
 )
 
@@ -169,7 +169,7 @@ async def process_item(payload: dict) -> None:
         await attach_source(session, news, raw, channel, item)
         await session.commit()
 
-        await publish_analyzed(
+        await publish_clustered(
             {
                 "news_id": news.id,
                 "canonical_hash": news.canonical_hash,

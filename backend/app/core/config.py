@@ -15,7 +15,14 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 2
+
+    analysis_prompt_version: str = "analysis-v1"
+    analysis_relevance_min: float = 0.3
+    fast_path_enabled: bool = True
 
     trading_mode: str = "paper"
     confidence_min: int = 60

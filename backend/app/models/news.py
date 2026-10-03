@@ -60,6 +60,8 @@ class News(Base):
     certainty: Mapped[Decimal | None] = mapped_column(Numeric(4, 3))
     impact_timeframe: Mapped[str | None] = mapped_column(Text)
     market_scope: Mapped[str | None] = mapped_column(Text)
+    analysis_status: Mapped[str] = mapped_column(Text, default="pending")
+    discarded_reason: Mapped[str | None] = mapped_column(Text)
     asset_resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536))
     source_count: Mapped[int] = mapped_column(Integer, default=1)

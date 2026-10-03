@@ -280,19 +280,21 @@ Only originator signals count toward a channel's accuracy.
 
 | Stream | Producer | Consumer | Payload |
 | :--- | :--- | :--- | :--- |
-| `raw_news` | Ingestor | Fast path, analyzer | normalized message with metadata |
-| `raw_news_dlq` | Any | Ops | failed payload plus error |
+| `raw_news` | Ingestor | Cluster worker | normalized message with metadata |
+| `clustered_news` | Cluster worker | Analyzer (fast path plus LLM) | deduplicated news cluster reference |
+| `fast_alerts` | Analyzer fast path | API, notifier | immediate high-precision event alert |
 | `analyzed_news` | Analyzer | Signal engine | analysis plus enrichment |
 | `signals` | Signal engine | API, executor | full signal object |
 | `orders` | Executor | API, audit | order state transitions |
+| `dlq` | Any stage | Ops | failed payload plus error |
 
 Use consumer groups plus `XACK`; on repeated failure move to the DLQ.
 
 ```text
 XADD raw_news * channel_id 123 message_id 456 text "..."
-XGROUP CREATE raw_news analyzers 0 MKSTREAM
-XREADGROUP GROUP analyzers worker-1 COUNT 10 BLOCK 5000 STREAMS raw_news >
-XACK raw_news analyzers <id>
+XGROUP CREATE raw_news pipeline 0 MKSTREAM
+XREADGROUP GROUP pipeline clusterer-1 COUNT 10 BLOCK 5000 STREAMS raw_news >
+XACK raw_news pipeline <id>
 ```
 
 ## 4. REST API contracts

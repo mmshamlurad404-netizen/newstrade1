@@ -7,7 +7,7 @@ does not decide trade levels; that is Phase 3 (`04-phase-3-trading-engine.md`).
 
 ```mermaid
 flowchart LR
-    RAW["Redis raw_news"] --> FAST["Fast path templates and classifier"]
+    RAW["Redis clustered_news"] --> FAST["Fast path templates and classifier"]
     FAST -->|"high precision event"| ALERT["Immediate alert"]
     FAST --> FILT["Relevance filter"]
     FILT -->|"low score"| DROP["Discard with reason"]
