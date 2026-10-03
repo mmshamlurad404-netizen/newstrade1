@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.session
+*.session-journal
+.pytest_cache/
+.ruff_cache/
+node_modules/
+.dart_tool/
+build/

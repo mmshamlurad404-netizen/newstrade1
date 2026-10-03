@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-newstrade}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  migrator:
+    build: ../backend
+    command: ["alembic", "upgrade", "head"]
+    env_file: ../backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingestor:
+    build: ../backend
+    command: ["python", "-m", "app.services.ingestion.listener"]
+    env_file: ../backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  clusterer:
+    build: ../backend
+    command: ["python", "-m", "app.services.ingestion.cluster_worker"]
+    env_file: ../backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  api:
+    build: ../backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    env_file: ../backend/.env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
