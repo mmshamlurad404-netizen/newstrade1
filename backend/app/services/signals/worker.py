@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -54,6 +55,28 @@ async def _open_positions(session) -> int:
         select(func.count()).select_from(PaperTrade).where(PaperTrade.closed_at.is_(None))
     )
     return int(value or 0)
+
+
+async def _open_risk_amount(session, equity: float) -> float:
+    result = await session.execute(
+        select(SignalRow.risk_pct)
+        .join(PaperTrade, PaperTrade.signal_id == SignalRow.id)
+        .where(PaperTrade.closed_at.is_(None))
+    )
+    total = sum(float(row[0] or 0.0) for row in result.all())
+    return total * equity
+
+
+async def _realized_pnl_pct(session, equity: float, since) -> float:
+    total = await session.scalar(
+        select(func.coalesce(func.sum(PaperTrade.pnl), 0)).where(
+            PaperTrade.closed_at.is_not(None),
+            PaperTrade.closed_at >= since,
+        )
+    )
+    if not equity:
+        return 0.0
+    return float(total or 0.0) / equity * 100.0
 
 
 async def _fetch_candles(asset: str, timeframe: str) -> list[dict]:
@@ -120,9 +143,20 @@ async def process(payload: dict) -> None:
             )
             return
 
+        equity = settings.paper_equity
+        now = datetime.now(timezone.utc)
+        open_risk = await _open_risk_amount(session, equity)
         state = risk_module.RiskState(
-            equity=settings.paper_equity,
+            equity=equity,
             open_positions=await _open_positions(session),
+            open_risk_amount=open_risk,
+            correlated_risk_amount=open_risk,
+            daily_pnl_pct=await _realized_pnl_pct(
+                session, equity, now - timedelta(days=1)
+            ),
+            weekly_pnl_pct=await _realized_pnl_pct(
+                session, equity, now - timedelta(days=7)
+            ),
             kill_switch=settings.kill_switch,
         )
         decision = risk_module.evaluate(

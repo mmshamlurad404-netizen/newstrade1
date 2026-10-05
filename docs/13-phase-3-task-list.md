@@ -51,6 +51,8 @@ task ends with something testable. Respect gates G3-G5 in
 
 - [x] Implement `backend/app/services/trading/paper.py`: `simulate_entry`,
       `check_exit`, `compute_pnl` with fees.
+- [x] Implement `backend/app/services/trading/manage.py`: `evaluate_exit` and
+      `rollup_pnl_pct`.
 
 ## Task 7: Exchange adapter
 
@@ -67,8 +69,10 @@ task ends with something testable. Respect gates G3-G5 in
 - [x] Risk-evaluate; persist rejected signals with reasons.
 - [x] On approval, persist active signal and open a `paper_trades` row.
 - [x] Publish to `signals`, route failures to `dlq`.
-- [ ] Add an executor that manages open paper trades (exit on SL/TP/expiry).
-- [ ] Add daily/weekly PnL rollups into `RiskState`.
+- [x] Feed aggregate open risk, realized daily/weekly PnL, and open-position
+      count into `RiskState`.
+- [x] Implement `backend/app/services/trading/worker.py` executor that closes
+      open paper trades on stop loss, take profit, or expiry.
 
 ## Task 9: Database changes
 
@@ -77,7 +81,8 @@ task ends with something testable. Respect gates G3-G5 in
 
 ## Task 10: Deployment
 
-- [x] Add the `signaler` service to `deploy/docker-compose.yml`.
+- [x] Add the `signaler` and `executor` services to
+      `deploy/docker-compose.yml`.
 - [x] Add `ccxt` dependency and `DEFAULT_EXCHANGE` / `PAPER_EQUITY` settings.
 
 ## Gate G3-G5 before live trading
