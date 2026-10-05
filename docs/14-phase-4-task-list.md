@@ -46,24 +46,27 @@ remaining large items.
 - [x] WebSocket rejects a bad token.
 - [x] Serializer tests for signal and news edge cases.
 
-## Task 5: Flutter app (Windows + Android)
+## Task 5: Web dashboard (dev and preview)
 
-- [ ] Project scaffold with REST client and short-lived session token.
-- [ ] News feed screen with filters and sentiment badges.
-- [ ] Signal card with confidence bar, levels, expiry countdown, fast-alert
-      state.
-- [ ] Portfolio screen (positions, realized/unrealized PnL, history).
-- [ ] Channels and settings screens; kill switch always reachable.
-- [ ] Paper default; live toggle behind explicit confirmation and 2FA.
-- [ ] `flutter build windows` and `flutter build apk --release`.
+- [x] Vite + React + TypeScript dashboard in `frontend/`.
+- [x] `/api` and `/ws` reverse proxy plus `allowedHosts`.
+- [x] News, Signals, Portfolio, Channels, Settings tabs.
+- [x] Bearer-token auth with token stored in `localStorage`.
 
-## Task 6: Notifications
+## Task 6: Flutter app (Windows + Android)
+
+- [x] Project scaffold in `client/` (models, REST client, WebSocket, screens).
+- [ ] Generate platform folders with `flutter create --platforms=android,windows .`.
+- [ ] Verify the Windows build connects and can run a paper trade.
+- [ ] Package the release APK.
+
+## Task 7: Notifications
 
 - [ ] Android via FCM for signals above the confidence threshold.
 - [ ] Windows toast via the WebSocket fallback.
 - [ ] In-app badges and per-channel/coin mute; debounce and group.
 
-## Task 7: Deployment and observability
+## Task 8: Deployment and observability
 
 - [ ] Verify migrations run before workers in compose.
 - [ ] Queue-lag, LLM cost, signal-count, order-failure metrics.
