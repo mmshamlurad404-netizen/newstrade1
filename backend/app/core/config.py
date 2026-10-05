@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     max_leverage: int = 5
     kill_switch: bool = False
 
+    api_token: str = "change-me"
+    cors_origins: str = "*"
+
     log_level: str = "INFO"
 
 

@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.config import settings
 from app.core.logging import get_logger, configure_logging
+from app.core import runtime
 from app.db.session import async_session_factory
 from app.models.ingestion import Channel
 from app.models.news import News, NewsSource
@@ -157,7 +158,7 @@ async def process(payload: dict) -> None:
             weekly_pnl_pct=await _realized_pnl_pct(
                 session, equity, now - timedelta(days=7)
             ),
-            kill_switch=settings.kill_switch,
+            kill_switch=settings.kill_switch or await runtime.get_kill_switch(),
         )
         decision = risk_module.evaluate(
             signal,
