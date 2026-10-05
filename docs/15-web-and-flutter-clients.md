@@ -76,7 +76,33 @@ flutter run -d windows --dart-define=API_BASE_URL=http://localhost:8080
   component that calls an exchange.
 - Private-channel text is hidden unless the channel allows redistribution.
 
-## 4. Remaining
+## 4. Local development stack (no Docker)
+
+```bash
+# Postgres 15 with pgvector and Redis
+apt-get install -y postgresql redis-server
+# pgvector is not in the default repo; use the PGDG repo
+# then: apt-get install -y postgresql-15-pgvector
+service postgresql start
+service redis-server start
+
+# Create the database
+psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE newstrade;"
+
+# Configure backend/.env, then apply migrations
+python3 -m alembic upgrade head
+
+# Optional demo rows for the dashboard
+psql -h 127.0.0.1 -U postgres -d newstrade -f scripts/seed_demo.sql
+
+# Run the API and the dashboard
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+`backend/.env` is gitignored; use `backend/.env.example` as the template and set
+`API_TOKEN` to match `frontend/.env` (`VITE_API_TOKEN`).
+
+## 5. Remaining
 
 - Android FCM wiring and `google-services.json`.
 - Windows toast plugin and in-app badge grouping.
