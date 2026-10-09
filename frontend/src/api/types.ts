@@ -84,3 +84,25 @@ export interface Health {
   trading_mode: string;
   kill_switch: boolean;
 }
+
+export interface Notification {
+  id: number;
+  channel: string;
+  event_type: string;
+  title: string;
+  body: string | null;
+  signal_id: string | null;
+  payload: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string | null;
+}
+
+export interface Device {
+  id: number;
+  token: string;
+  platform: string;
+  label: string | null;
+  is_active: boolean;
+  created_at: string | null;
+  last_seen_at: string | null;
+}

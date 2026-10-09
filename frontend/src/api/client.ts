@@ -1,4 +1,13 @@
-import type { Channel, Health, News, Portfolio, Signal, Trade } from "./types";
+import type {
+  Channel,
+  Device,
+  Health,
+  News,
+  Notification,
+  Portfolio,
+  Signal,
+  Trade,
+} from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 const TOKEN_KEY = "newstrade_token";
@@ -45,6 +54,20 @@ export const api = {
     request<{ kill_switch: boolean }>("/api/kill-switch", {
       method: "POST",
       body: JSON.stringify({ enabled }),
+    }),
+  notifications: (params = "") =>
+    request<Notification[]>(`/api/notifications${params}`),
+  markNotificationRead: (id: number) =>
+    request<Notification>(`/api/notifications/${id}/read`, { method: "POST" }),
+  markAllNotificationsRead: () =>
+    request<{ status: string; marked: number }>("/api/notifications/read-all", {
+      method: "POST",
+    }),
+  devices: () => request<Device[]>("/api/devices"),
+  registerDevice: (body: { token: string; platform: string; label?: string }) =>
+    request<Device>("/api/devices", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 };
 

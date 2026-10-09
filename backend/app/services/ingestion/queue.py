@@ -13,7 +13,12 @@ DLQ_STREAM = "dlq"
 FAST_ALERTS_STREAM = "fast_alerts"
 CONSUMER_GROUP = "pipeline"
 
-_client = redis.from_url(settings.redis_url, decode_responses=True)
+# socket_timeout must exceed the blocking XREADGROUP time in the workers
+# (5s), otherwise redis-py's default/relaxed timeout races the read and
+# raises spurious "Timeout reading" errors while idle.
+_client = redis.from_url(
+    settings.redis_url, decode_responses=True, socket_timeout=30
+)
 
 
 def get_client() -> redis.Redis:

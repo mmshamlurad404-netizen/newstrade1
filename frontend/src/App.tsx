@@ -4,11 +4,19 @@ import { api } from "./api/client";
 import { useApi } from "./hooks/useApi";
 import { Channels } from "./pages/Channels";
 import { NewsFeed } from "./pages/NewsFeed";
+import { Notifications } from "./pages/Notifications";
 import { Portfolio } from "./pages/Portfolio";
 import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
 
-const TABS = ["News", "Signals", "Portfolio", "Channels", "Settings"] as const;
+const TABS = [
+  "News",
+  "Signals",
+  "Portfolio",
+  "Channels",
+  "Alerts",
+  "Settings",
+] as const;
 type Tab = (typeof TABS)[number];
 
 export default function App() {
@@ -43,6 +51,7 @@ export default function App() {
         {tab === "Signals" && <Signals />}
         {tab === "Portfolio" && <Portfolio />}
         {tab === "Channels" && <Channels />}
+        {tab === "Alerts" && <Notifications />}
         {tab === "Settings" && <Settings />}
       </main>
     </div>

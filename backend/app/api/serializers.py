@@ -90,3 +90,29 @@ def serialize_channel(channel) -> dict:
         "is_active": channel.is_active,
         "last_seen_at": _dt(channel.last_seen_at),
     }
+
+
+def serialize_notification(note) -> dict:
+    return {
+        "id": note.id,
+        "channel": note.channel,
+        "event_type": note.event_type,
+        "title": note.title,
+        "body": note.body,
+        "signal_id": note.signal_id,
+        "payload": note.payload,
+        "read_at": _dt(note.read_at),
+        "created_at": _dt(note.created_at),
+    }
+
+
+def serialize_device(device) -> dict:
+    return {
+        "id": device.id,
+        "token": device.token,
+        "platform": device.platform,
+        "label": device.label,
+        "is_active": device.is_active,
+        "created_at": _dt(device.created_at),
+        "last_seen_at": _dt(device.last_seen_at),
+    }

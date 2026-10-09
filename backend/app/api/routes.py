@@ -9,7 +9,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import serializers
@@ -19,8 +19,9 @@ from app.core.config import settings
 from app.db.session import get_session
 from app.models.ingestion import Channel
 from app.models.news import News, NewsSource, RawMessage
+from app.models.notifications import DeviceToken, Notification
 from app.models.trading import PaperTrade, SignalRow, Trade
-from app.schemas.api import KillSwitchUpdate
+from app.schemas.api import DeviceRegister, KillSwitchUpdate
 from app.services.ingestion.queue import (
     FAST_ALERTS_STREAM,
     SIGNALS_STREAM,
@@ -265,6 +266,86 @@ async def get_kill_switch() -> dict:
 async def set_kill_switch(body: KillSwitchUpdate) -> dict:
     enabled = await runtime.set_kill_switch(body.enabled)
     return {"kill_switch": enabled}
+
+
+@router.get("/notifications")
+async def list_notifications(
+    unread_only: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    statement = (
+        select(Notification).order_by(Notification.created_at.desc()).limit(limit)
+    )
+    if unread_only:
+        statement = statement.where(Notification.read_at.is_(None))
+    rows = (await session.scalars(statement)).all()
+    return [serializers.serialize_notification(row) for row in rows]
+
+
+@router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: int, session: AsyncSession = Depends(get_session)
+) -> dict:
+    note = await session.get(Notification, notification_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="notification not found")
+    if note.read_at is None:
+        note.read_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(note)
+    return serializers.serialize_notification(note)
+
+
+@router.post("/notifications/read-all")
+async def mark_all_notifications_read(
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    result = await session.execute(
+        update(Notification)
+        .where(Notification.read_at.is_(None))
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return {"status": "ok", "marked": result.rowcount or 0}
+
+
+@router.get("/devices")
+async def list_devices(
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    rows = (
+        await session.scalars(
+            select(DeviceToken).order_by(DeviceToken.created_at.desc())
+        )
+    ).all()
+    return [serializers.serialize_device(row) for row in rows]
+
+
+@router.post("/devices")
+async def register_device(
+    body: DeviceRegister, session: AsyncSession = Depends(get_session)
+) -> dict:
+    now = datetime.now(timezone.utc)
+    device = await session.scalar(
+        select(DeviceToken).where(DeviceToken.token == body.token)
+    )
+    if device is None:
+        device = DeviceToken(
+            token=body.token,
+            platform=body.platform,
+            label=body.label,
+            last_seen_at=now,
+        )
+        session.add(device)
+    else:
+        device.platform = body.platform
+        device.label = body.label
+        device.is_active = True
+        device.last_seen_at = now
+    await session.commit()
+    await session.refresh(device)
+    return serializers.serialize_device(device)
 
 
 async def _stream_loop(ws: WebSocket, stream: str, event_type: str) -> None:

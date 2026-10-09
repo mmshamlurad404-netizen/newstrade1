@@ -88,6 +88,13 @@ async def _fetch_candles(asset: str, timeframe: str) -> list[dict]:
             settings.default_exchange, "", "", testnet=False
         )
         try:
+            if not await exchanges.symbol_allowed(exchange, asset):
+                log.info(
+                    "symbol not tradable on %s: %s"
+                    % (settings.default_exchange, asset),
+                    extra={"stage": "signals"},
+                )
+                return []
             return await exchanges.fetch_candles(exchange, asset, timeframe)
         finally:
             await exchange.close()
@@ -188,24 +195,30 @@ async def process(payload: dict) -> None:
         await _persist_signal(session, signal, [])
 
         if settings.trading_mode == "paper":
-            fill = paper.simulate_entry(
-                signal_id=signal.signal_id,
-                asset=signal.asset,
-                direction=signal.direction,
-                entry_price=signal.entry_low,
-                quantity=decision.size,
+            already_open = await session.scalar(
+                select(func.count())
+                .select_from(PaperTrade)
+                .where(PaperTrade.signal_id == signal.signal_id)
             )
-            session.add(
-                PaperTrade(
+            if not already_open:
+                fill = paper.simulate_entry(
                     signal_id=signal.signal_id,
                     asset=signal.asset,
-                    direction=signal.direction.value,
-                    entry_price=Decimal(str(fill["entry_price"])),
-                    quantity=Decimal(str(fill["quantity"])),
-                    fees=Decimal(str(fill["fees"])),
-                    opened_at=signal.created_at,
+                    direction=signal.direction,
+                    entry_price=signal.entry_low,
+                    quantity=decision.size,
                 )
-            )
+                session.add(
+                    PaperTrade(
+                        signal_id=signal.signal_id,
+                        asset=signal.asset,
+                        direction=signal.direction.value,
+                        entry_price=Decimal(str(fill["entry_price"])),
+                        quantity=Decimal(str(fill["quantity"])),
+                        fees=Decimal(str(fill["fees"])),
+                        opened_at=signal.created_at,
+                    )
+                )
 
         await session.commit()
 

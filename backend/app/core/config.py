@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     api_token: str = "change-me"
     cors_origins: str = "*"
 
+    notifications_enabled: bool = True
+    fcm_project_id: str = ""
+    fcm_credentials_path: str = ""
+
     log_level: str = "INFO"
 
 
