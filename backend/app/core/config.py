@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     fcm_project_id: str = ""
     fcm_credentials_path: str = ""
 
+    feed_request_timeout: float = 20.0
+    feed_user_agent: str = "newstrade1-feedbot/0.1"
+    feed_max_entries: int = 40
+    feed_max_age_hours: int = 72
+
     log_level: str = "INFO"
 
 

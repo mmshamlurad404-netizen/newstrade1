@@ -7,9 +7,34 @@ from app.models.ingestion import Channel
 async def load_tracked_channels() -> list[Channel]:
     async with async_session_factory() as session:
         result = await session.execute(
-            select(Channel).where(Channel.is_active.is_(True))
+            select(Channel).where(
+                Channel.is_active.is_(True),
+                Channel.kind == "telegram",
+            )
         )
         return list(result.scalars().all())
+
+
+async def load_feed_channels() -> list[Channel]:
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Channel).where(
+                Channel.is_active.is_(True),
+                Channel.kind == "feed",
+            )
+        )
+        return list(result.scalars().all())
+
+
+async def update_feed_polled(channel_id: int, posted_at=None) -> None:
+    values = {"last_polled_at": func.now(), "last_seen_at": func.now()}
+    if posted_at is not None:
+        values["last_seen_at"] = posted_at
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Channel).where(Channel.id == channel_id).values(**values)
+        )
+        await session.commit()
 
 
 async def update_last_message_id(telegram_id: int, message_id: int) -> None:

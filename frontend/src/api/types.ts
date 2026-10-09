@@ -73,6 +73,10 @@ export interface Channel {
   telegram_id: number;
   username: string | null;
   title: string;
+  kind: string;
+  feed_url: string | null;
+  poll_interval_seconds: number | null;
+  last_polled_at: string | null;
   is_private: boolean;
   credibility: number;
   is_active: boolean;

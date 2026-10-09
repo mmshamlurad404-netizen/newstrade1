@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     Text,
     func,
@@ -37,6 +38,10 @@ class Channel(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text, default="telegram", index=True)
+    feed_url: Mapped[str | None] = mapped_column(Text)
+    poll_interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_private: Mapped[bool] = mapped_column(Boolean, default=False)
     redistribute_content: Mapped[bool] = mapped_column(Boolean, default=False)
     credibility: Mapped[Decimal] = mapped_column(

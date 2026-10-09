@@ -49,6 +49,22 @@ export const api = {
   portfolio: () => request<Portfolio>("/api/portfolio"),
   trades: (params = "") => request<Trade[]>(`/api/trades${params}`),
   channels: () => request<Channel[]>("/api/channels"),
+  feeds: () => request<Channel[]>("/api/feeds"),
+  createFeed: (body: {
+    title: string;
+    url: string;
+    credibility?: number;
+    poll_interval_seconds?: number;
+  }) =>
+    request<Channel>("/api/feeds", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  setFeedActive: (id: number, active: boolean) =>
+    request<Channel>(`/api/feeds/${id}/active`, {
+      method: "POST",
+      body: JSON.stringify({ active }),
+    }),
   killSwitch: () => request<{ kill_switch: boolean }>("/api/kill-switch"),
   setKillSwitch: (enabled: boolean) =>
     request<{ kill_switch: boolean }>("/api/kill-switch", {

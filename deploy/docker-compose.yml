@@ -64,6 +64,19 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  feeds:
+    build: ../backend
+    command: ["python", "-m", "app.services.ingestion.feed_worker"]
+    env_file: ../backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   analyzer:
     build: ../backend
     command: ["python", "-m", "app.services.analysis.worker"]

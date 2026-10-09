@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import (
     APIRouter,
@@ -10,6 +11,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import serializers
@@ -21,7 +23,13 @@ from app.models.ingestion import Channel
 from app.models.news import News, NewsSource, RawMessage
 from app.models.notifications import DeviceToken, Notification
 from app.models.trading import PaperTrade, SignalRow, Trade
-from app.schemas.api import DeviceRegister, KillSwitchUpdate
+from app.schemas.api import (
+    ActiveUpdate,
+    DeviceRegister,
+    FeedCreate,
+    KillSwitchUpdate,
+)
+from app.services.ingestion import feeds as feed_sources
 from app.services.ingestion.queue import (
     FAST_ALERTS_STREAM,
     SIGNALS_STREAM,
@@ -255,6 +263,62 @@ async def list_channels(
         )
     ).all()
     return [serializers.serialize_channel(row) for row in rows]
+
+
+@router.get("/feeds")
+async def list_feeds(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    rows = (
+        await session.scalars(
+            select(Channel)
+            .where(Channel.kind == "feed")
+            .order_by(Channel.title)
+        )
+    ).all()
+    return [serializers.serialize_channel(row) for row in rows]
+
+
+@router.post("/feeds")
+async def create_feed(
+    body: FeedCreate, session: AsyncSession = Depends(get_session)
+) -> dict:
+    existing = await session.scalar(
+        select(Channel).where(Channel.feed_url == body.url)
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="feed already registered")
+
+    channel = Channel(
+        telegram_id=feed_sources.synthetic_telegram_id(body.url),
+        title=body.title,
+        kind="feed",
+        feed_url=body.url,
+        poll_interval_seconds=body.poll_interval_seconds,
+        credibility=Decimal(str(round(body.credibility, 3))),
+        is_active=True,
+    )
+    session.add(channel)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="feed already registered")
+    await session.refresh(channel)
+    return serializers.serialize_channel(channel)
+
+
+@router.post("/feeds/{feed_id}/active")
+async def set_feed_active(
+    feed_id: int,
+    body: ActiveUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    channel = await session.get(Channel, feed_id)
+    if channel is None or channel.kind != "feed":
+        raise HTTPException(status_code=404, detail="feed not found")
+    channel.is_active = body.active
+    await session.commit()
+    await session.refresh(channel)
+    return serializers.serialize_channel(channel)
 
 
 @router.get("/kill-switch")
