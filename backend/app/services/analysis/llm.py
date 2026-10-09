@@ -31,9 +31,10 @@ async def analyze(
     channel_name: str,
     timestamp: str,
     coins_hint: list[str] | None = None,
+    jev_hint: dict | None = None,
 ) -> Analysis:
     messages = prompt_module.build_messages(
-        cleaned_text, channel_name, timestamp, coins_hint
+        cleaned_text, channel_name, timestamp, coins_hint, jev_hint
     )
     last_error: Exception | None = None
 

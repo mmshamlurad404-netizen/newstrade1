@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     analysis_relevance_min: float = 0.3
     fast_path_enabled: bool = True
 
+    typesafe_api_key: str = ""
+    typesafe_base_url: str = "https://api.typesafe.ai"
+    typesafe_model: str = "jev-latest"
+    typesafe_timeout_seconds: float = 20.0
+    jev_gate_enabled: bool = True
+    jev_usefulness_min: float = 0.5
+
     trading_mode: str = "paper"
     default_exchange: str = "binance"
     paper_equity: float = 10000.0

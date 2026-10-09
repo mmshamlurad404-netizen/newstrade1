@@ -48,14 +48,25 @@ def build_messages(
     channel_name: str,
     timestamp: str,
     coins_hint: list[str] | None = None,
+    jev_hint: dict | None = None,
 ) -> list[dict]:
     hint = ", ".join(coins_hint or [])
+    jev_text = ""
+    if jev_hint:
+        jev_text = (
+            "\nJEV pre-categorization (suggestion only, verify against the "
+            f"data): event_type={jev_hint.get('event_type')}, "
+            f"sentiment={jev_hint.get('sentiment')}, "
+            f"urgency={jev_hint.get('urgency')}, "
+            f"usefulness={(jev_hint.get('useful') or 0):.2f}."
+        )
     user_content = (
         "Analyze the following Telegram message.\n\n"
         f"<DATA>\n{escape_data(cleaned_text)}\n</DATA>\n\n"
         f"Metadata (trusted): source_channel={channel_name}, "
         f"posted_at={timestamp}, detected_coins={hint}, "
-        f"prompt_version={PROMPT_VERSION}\n\n"
+        f"prompt_version={PROMPT_VERSION}\n"
+        f"{jev_text}\n\n"
         f"Return ONLY a valid JSON object with exactly these fields:\n"
         f"{SCHEMA_TEXT}\n\nRules: {RULES_TEXT}"
     )

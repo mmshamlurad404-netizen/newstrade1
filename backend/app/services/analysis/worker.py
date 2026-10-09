@@ -6,7 +6,7 @@ from app.core.logging import configure_logging, get_logger
 from app.db.session import async_session_factory
 from app.models.news import News
 from app.services.analysis import filter as relevance
-from app.services.analysis import market, validator
+from app.services.analysis import jev, market, validator
 from app.services.analysis.enrich import build_enrichment
 from app.services.analysis.llm import AnalysisError, analyze
 from app.services.analysis.prompt import PROMPT_VERSION
@@ -52,6 +52,19 @@ async def analyze_news(payload: dict) -> None:
             await session.commit()
             return
 
+        jev_client = jev.get_jev_client()
+        assessment = (
+            await jev_client.assess(text) if jev_client.available else None
+        )
+        jev_hint = assessment.as_dict() if assessment is not None else None
+        if assessment is not None and settings.jev_gate_enabled:
+            if not assessment.is_useful:
+                news.jev_assessment = jev_hint
+                news.analysis_status = "discarded"
+                news.discarded_reason = f"low_usefulness:{assessment.useful:.2f}"
+                await session.commit()
+                return
+
         injections = validator.detect_injection(text)
         try:
             result = await analyze(
@@ -59,8 +72,10 @@ async def analyze_news(payload: dict) -> None:
                 payload.get("channel_title") or "",
                 posted_at or "",
                 [],
+                jev_hint,
             )
         except AnalysisError as exc:
+            news.jev_assessment = jev_hint
             news.analysis_status = "failed"
             news.discarded_reason = f"llm:{exc}"
             await session.commit()
@@ -90,6 +105,7 @@ async def analyze_news(payload: dict) -> None:
         news.asset_resolved = bool(result.coins)
         news.prompt_version = PROMPT_VERSION
         news.model_name = settings.llm_model
+        news.jev_assessment = jev_hint
         news.analysis_status = "analyzed"
         news.discarded_reason = None
         await session.commit()
@@ -110,6 +126,7 @@ async def analyze_news(payload: dict) -> None:
                 "injections": injections,
                 "anomalous": anomalous,
                 "enrichment": enrichment,
+                "jev": jev_hint,
             }
         )
 

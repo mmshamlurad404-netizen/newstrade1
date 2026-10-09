@@ -30,6 +30,7 @@ def serialize_news(news, origin_channel: str | None = None) -> dict:
         "origin_channel": origin_channel,
         "asset_resolved": news.asset_resolved,
         "analysis_status": news.analysis_status,
+        "jev": getattr(news, "jev_assessment", None),
         "first_seen_at": _dt(news.first_seen_at),
         "last_seen_at": _dt(news.last_seen_at),
     }
