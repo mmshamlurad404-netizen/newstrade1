@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from app.api import serializers
 from app.schemas.api import FeedCreate
 from app.services.ingestion import feeds
+from app.services.ingestion.feed_catalog import DEFAULT_FEEDS, POLL_INTERVAL_SECONDS
 
 RSS = b"""<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Bitcoin News</title>
@@ -154,3 +155,24 @@ def test_serialize_channel_feed_fields():
     assert data["kind"] == "feed"
     assert data["feed_url"].endswith("rss/")
     assert data["poll_interval_seconds"] == 300
+
+
+def test_feed_catalog_has_one_hundred_feeds():
+    assert len(DEFAULT_FEEDS) == 100
+
+
+def test_feed_catalog_entries_are_well_formed():
+    urls = [url for _title, url, _cred in DEFAULT_FEEDS]
+    titles = [title for title, _url, _cred in DEFAULT_FEEDS]
+    assert len(set(urls)) == len(urls)
+    assert len(set(titles)) == len(titles)
+    for title, url, credibility in DEFAULT_FEEDS:
+        assert title.strip()
+        assert url.startswith("https://")
+        assert 0.0 <= credibility <= 1.0
+
+
+def test_feed_catalog_synthetic_ids_are_unique():
+    ids = {feeds.synthetic_telegram_id(url) for _t, url, _c in DEFAULT_FEEDS}
+    assert len(ids) == len(DEFAULT_FEEDS)
+    assert POLL_INTERVAL_SECONDS >= 60

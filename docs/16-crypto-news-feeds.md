@@ -45,23 +45,36 @@ lets the Telegram listener ignore feeds: `load_tracked_channels()` filters on
 ## Configuration (`Settings`)
 
 - `feed_request_timeout` (default 20s)
-- `feed_user_agent`
+- `feed_user_agent` (browser User-Agent; reduces WAF 403s)
 - `feed_max_entries` (max entries handled per poll, default 40)
-- `feed_max_age_hours` (skip entries older than this on first poll, default 72)
+- `feed_max_age_hours` (skip entries older than this, default 168)
+- `feed_poll_concurrency` (feeds fetched in parallel per cycle, default 8)
 
 Redirects are followed (`follow_redirects=True`), needed for e.g. CoinDesk.
 
 ## Running
 
 ```bash
-# register the default crypto feeds (idempotent)
+# register/refresh the default crypto feeds (idempotent)
 python scripts/seed_feeds.py
+
+# also deactivate feed channels no longer in the catalog
+python scripts/seed_feeds.py --prune
 
 # start the poller (compose service: feeds)
 python -m app.services.ingestion.feed_worker
 ```
 
-Default feeds: CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine.
+## Catalog
+
+`app/services/ingestion/feed_catalog.py` ships a curated **top-100** catalog
+(`DEFAULT_FEEDS`), grouped into six buckets: crypto media, news aggregators,
+macro/regulation, on-chain/analytics research, exchange/company/protocol
+blogs, and mainstream finance/tech. Every URL was verified to return a
+parseable feed with a recent (< 7 days) item; the current run publishes
+content from 99/100 sources (Reddit intermittently 429s). The catalog replaced
+the earlier 4-feed default and the initial auto-discovered list, which
+contained many stale mirrors.
 
 ## API
 

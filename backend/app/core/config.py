@@ -47,9 +47,13 @@ class Settings(BaseSettings):
     fcm_credentials_path: str = ""
 
     feed_request_timeout: float = 20.0
-    feed_user_agent: str = "newstrade1-feedbot/0.1"
+    feed_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+    )
     feed_max_entries: int = 40
-    feed_max_age_hours: int = 72
+    feed_max_age_hours: int = 168
+    feed_poll_concurrency: int = 8
 
     log_level: str = "INFO"
 

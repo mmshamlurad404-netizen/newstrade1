@@ -12,6 +12,7 @@ from app.services.ingestion.state import load_feed_channels, update_feed_polled
 log = get_logger("ingestion.feeds")
 
 TICK_SECONDS = 30
+MAX_SEEN_PER_CHANNEL = 5000
 
 _seen: dict[int, set[int]] = {}
 
@@ -57,6 +58,9 @@ async def poll_channel(client: httpx.AsyncClient, channel, now: datetime) -> int
             newest = entry.published
 
     await update_feed_polled(channel.id, newest)
+    if len(seen) > MAX_SEEN_PER_CHANNEL:
+        seen.clear()
+        seen.update(feeds.stable_message_id(e.guid) for e in entries)
     if published:
         log.info(
             "feed %s published %s new items" % (channel.title, published),
@@ -73,14 +77,26 @@ async def run() -> None:
     async with httpx.AsyncClient(
         timeout=settings.feed_request_timeout, follow_redirects=True
     ) as client:
+        semaphore = asyncio.Semaphore(settings.feed_poll_concurrency)
+
+        async def guarded(channel, now):
+            async with semaphore:
+                await poll_channel(client, channel, now)
+
         while True:
             try:
                 channels = await load_feed_channels()
                 now = datetime.now(timezone.utc)
-                for channel in channels:
-                    if not channel.feed_url or not is_due(channel, now):
-                        continue
-                    await poll_channel(client, channel, now)
+                due = [
+                    channel
+                    for channel in channels
+                    if channel.feed_url and is_due(channel, now)
+                ]
+                if due:
+                    await asyncio.gather(
+                        *(guarded(channel, now) for channel in due),
+                        return_exceptions=True,
+                    )
             except Exception as exc:
                 log.error(
                     "feed cycle failed: %s" % exc, extra={"stage": "feeds"}
