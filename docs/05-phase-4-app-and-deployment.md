@@ -23,6 +23,8 @@ manual actions and real-time push.
 | GET | `/api/trades` | Historical trades and paper trades |
 | GET | `/api/channels` | Tracked channels with credibility scores |
 | GET | `/api/health` | Liveness and stage lag metrics |
+| GET | `/api/metrics` | JSON metrics snapshot (auth) |
+| GET | `/metrics` | Prometheus text exposition (no auth) |
 | WS | `/ws/news` | Real-time news push |
 | WS | `/ws/signals` | Real-time signal push |
 
@@ -229,6 +231,23 @@ matters.
   reconnect count, DLQ size.
 - Alerts: ingestor disconnected, no messages from a channel, queue backlog,
   risk limit hit, daily loss stop, executor position mismatch.
+
+Implemented metrics (`app/services/observability/metrics.py`):
+
+- Derived on demand from shared state so they aggregate across worker
+  processes: status counts from Postgres and stream depth / consumer
+  pending+lag from Redis.
+- Exposed two ways:
+  - `GET /metrics` - Prometheus text exposition (unauthenticated, for scraping).
+  - `GET /api/metrics` - JSON map of samples (token-protected, for the dashboard).
+- Sample names: `newstrade_stream_length|pending|lag`,
+  `newstrade_news_total{status}`, `newstrade_signals_total{status}`,
+  `newstrade_orders_total{status}`, `newstrade_paper_trades_open|closed_total|
+  wins_total|losses_total`, `newstrade_paper_realized_pnl`,
+  `newstrade_trades_open|closed_total|realized_pnl`,
+  `newstrade_channels_total|active{kind}`.
+- Per-call LLM token/cost logging is emitted by the analysis worker (see
+  `docs/03-phase-2-analysis-and-signals.md`).
 
 ### 5.6 Backups
 

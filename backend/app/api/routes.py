@@ -30,6 +30,7 @@ from app.schemas.api import (
     KillSwitchUpdate,
 )
 from app.services.ingestion import feeds as feed_sources
+from app.services.observability import metrics
 from app.services.ingestion.queue import (
     FAST_ALERTS_STREAM,
     SIGNALS_STREAM,
@@ -330,6 +331,14 @@ async def get_kill_switch() -> dict:
 async def set_kill_switch(body: KillSwitchUpdate) -> dict:
     enabled = await runtime.set_kill_switch(body.enabled)
     return {"kill_switch": enabled}
+
+
+@router.get("/metrics")
+async def get_metrics(
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    samples = await metrics.collect(session, get_client())
+    return {"metrics": metrics.to_dict(samples)}
 
 
 @router.get("/notifications")

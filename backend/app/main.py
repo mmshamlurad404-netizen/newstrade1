@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from app.api.routes import router, ws_router
 from app.core import runtime
 from app.core.config import settings
+from app.db.session import async_session_factory
+from app.services.ingestion.queue import get_client
+from app.services.observability import metrics
 
 app = FastAPI(title="newstrade1 backend", version="0.1.0")
 
@@ -26,3 +30,12 @@ async def health() -> dict:
         "trading_mode": settings.trading_mode,
         "kill_switch": settings.kill_switch or await runtime.get_kill_switch(),
     }
+
+
+@app.get("/metrics")
+async def prometheus_metrics() -> Response:
+    async with async_session_factory() as session:
+        samples = await metrics.collect(session, get_client())
+    return Response(
+        metrics.render(samples), media_type="text/plain; version=0.0.4"
+    )
