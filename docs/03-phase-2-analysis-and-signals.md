@@ -207,6 +207,17 @@ class Analysis(BaseModel):
 Use JSON/structured output when the provider supports it. Log the raw response,
 parsed result, token usage, cost, latency, and `prompt_version`.
 
+Implemented (`app/services/analysis/llm.py`):
+
+- Each successful call emits a structured JSON log line with `provider`,
+  `model`, `prompt_tokens`, `completion_tokens`, and `cost_usd`.
+- Cost is estimated from `llm_input_cost_per_1k` / `llm_output_cost_per_1k`.
+- On repeated primary failure (transport error, or invalid JSON after
+  `llm_max_retries` repair attempts) the request fails over to a secondary
+  provider configured via `llm_fallback_model` /
+  `llm_fallback_base_url` / `llm_fallback_api_key`. The model actually used is
+  recorded on `news.model_name`.
+
 ## 6. Prompt and model versioning
 
 - Store every prompt in version control with a `prompt_version` id.

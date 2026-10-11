@@ -67,7 +67,7 @@ async def analyze_news(payload: dict) -> None:
 
         injections = validator.detect_injection(text)
         try:
-            result = await analyze(
+            llm_result = await analyze(
                 text,
                 payload.get("channel_title") or "",
                 posted_at or "",
@@ -82,6 +82,7 @@ async def analyze_news(payload: dict) -> None:
             await publish_dlq(payload, str(exc))
             return
 
+        result = llm_result.analysis
         anomalous = validator.is_anomalous(result, 0.5, injections)
         result = validator.apply_caps(result, anomalous)
 
@@ -104,7 +105,7 @@ async def analyze_news(payload: dict) -> None:
         news.market_scope = result.market_scope
         news.asset_resolved = bool(result.coins)
         news.prompt_version = PROMPT_VERSION
-        news.model_name = settings.llm_model
+        news.model_name = llm_result.model
         news.jev_assessment = jev_hint
         news.analysis_status = "analyzed"
         news.discarded_reason = None

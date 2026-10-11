@@ -6,6 +6,18 @@ import app.services.analysis.worker as worker
 from app.core.config import settings
 from app.schemas.analysis import Analysis
 from app.services.analysis.jev import JevAssessment
+from app.services.analysis.llm import LLMResult
+
+
+def _llm_result(analysis: Analysis) -> LLMResult:
+    return LLMResult(
+        analysis=analysis,
+        provider="primary",
+        model=settings.llm_model,
+        prompt_tokens=0,
+        completion_tokens=0,
+        cost_usd=0.0,
+    )
 
 
 class _FakeSession:
@@ -97,12 +109,14 @@ async def test_gate_disabled_allows_analysis(monkeypatch):
 
     async def fake_analyze(text, channel, ts, coins_hint, jev_hint):
         captured["jev_hint"] = jev_hint
-        return Analysis(
-            is_tradable=True,
-            coins=[],
-            sentiment_score=0.0,
-            certainty=0.5,
-            summary="s",
+        return _llm_result(
+            Analysis(
+                is_tradable=True,
+                coins=[],
+                sentiment_score=0.0,
+                certainty=0.5,
+                summary="s",
+            )
         )
 
     async def fake_publish(_payload):
@@ -128,12 +142,14 @@ async def test_useful_assessment_passes_hint_to_llm(monkeypatch):
 
     async def fake_analyze(text, channel, ts, coins_hint, jev_hint):
         captured["jev_hint"] = jev_hint
-        return Analysis(
-            is_tradable=True,
-            coins=[],
-            sentiment_score=0.1,
-            certainty=0.6,
-            summary="s",
+        return _llm_result(
+            Analysis(
+                is_tradable=True,
+                coins=[],
+                sentiment_score=0.1,
+                certainty=0.6,
+                summary="s",
+            )
         )
 
     async def fake_publish(payload):
@@ -147,3 +163,35 @@ async def test_useful_assessment_passes_hint_to_llm(monkeypatch):
     assert news.analysis_status == "analyzed"
     assert captured["jev_hint"]["useful"] == 0.95
     assert captured["payload"]["jev"]["event_type"] == "regulation"
+
+
+async def test_model_name_records_used_model(monkeypatch):
+    news = _fake_news()
+    _wire(monkeypatch, news, useful=0.95)
+
+    async def fake_analyze(text, channel, ts, coins_hint, jev_hint):
+        return LLMResult(
+            analysis=Analysis(
+                is_tradable=True,
+                coins=[],
+                sentiment_score=0.1,
+                certainty=0.6,
+                summary="s",
+            ),
+            provider="fallback",
+            model="backup-model",
+            prompt_tokens=10,
+            completion_tokens=5,
+            cost_usd=0.001,
+        )
+
+    async def fake_publish(_payload):
+        return None
+
+    monkeypatch.setattr(worker, "analyze", fake_analyze)
+    monkeypatch.setattr(worker, "publish_analyzed", fake_publish)
+
+    await worker.analyze_news({"news_id": 1, "text": "SEC sues exchange", "posted_at": None})
+
+    assert news.analysis_status == "analyzed"
+    assert news.model_name == "backup-model"

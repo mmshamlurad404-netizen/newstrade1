@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
+    llm_fallback_model: str = ""
+    llm_fallback_base_url: str = ""
+    llm_fallback_api_key: str = ""
+    llm_input_cost_per_1k: float = 0.0
+    llm_output_cost_per_1k: float = 0.0
 
     analysis_prompt_version: str = "analysis-v1"
     analysis_relevance_min: float = 0.3
