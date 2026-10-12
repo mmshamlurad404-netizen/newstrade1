@@ -242,12 +242,26 @@ Implemented metrics (`app/services/observability/metrics.py`):
   - `GET /api/metrics` - JSON map of samples (token-protected, for the dashboard).
 - Sample names: `newstrade_stream_length|pending|lag`,
   `newstrade_news_total{status}`, `newstrade_signals_total{status}`,
-  `newstrade_orders_total{status}`, `newstrade_paper_trades_open|closed_total|
-  wins_total|losses_total`, `newstrade_paper_realized_pnl`,
+  `newstrade_orders_total{status}`,   `newstrade_paper_trades_open|closed_total|wins_total|losses_total`,
+  `newstrade_paper_realized_pnl|realized_pnl_day|realized_pnl_week`,
+  `newstrade_paper_open_risk_pct`,
   `newstrade_trades_open|closed_total|realized_pnl`,
   `newstrade_channels_total|active{kind}`.
 - Per-call LLM token/cost logging is emitted by the analysis worker (see
   `docs/03-phase-2-analysis-and-signals.md`).
+- The dashboard **System** tab renders the JSON snapshot: pipeline stream
+  length/pending/lag, trading and PnL stats, and source counts.
+
+Alerting (`app/services/observability/alerts.py` + `monitor.py`):
+
+- A `monitor` worker (`python -m app.services.observability.monitor`, compose
+  service `monitor`) evaluates the rules every `alert_interval_seconds`.
+- Rules: per-stream backlog (`alert_backlog_threshold`), DLQ growth
+  (`alert_dlq_threshold`), daily loss stop (`max_daily_loss_pct` of equity),
+  and open risk above `alert_open_risk_pct_max`.
+- Fired alerts are de-duplicated per key by `alert_cooldown_seconds` and
+  dispatched through the notification pipeline (in-app row + device push) as
+  `alert_backlog`, `alert_dlq`, `alert_daily_loss`, `alert_risk_limit`.
 
 ### 5.6 Backups
 

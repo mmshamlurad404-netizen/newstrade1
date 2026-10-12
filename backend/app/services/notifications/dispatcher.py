@@ -24,6 +24,15 @@ def build_notification(event: dict) -> dict | None:
     if not isinstance(event, dict):
         return None
 
+    if event.get("kind") == "system_alert":
+        return _row(
+            event.get("event_type", "system_alert"),
+            event.get("title", "System alert"),
+            event.get("body"),
+            event,
+            None,
+        )
+
     status = event.get("status")
     signal_id = event.get("signal_id")
 

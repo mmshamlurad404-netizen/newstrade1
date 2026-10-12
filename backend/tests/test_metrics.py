@@ -33,6 +33,9 @@ def _patch(session_val, monkeypatch):
             "open": 2,
             "closed": 6,
             "realized_pnl": 123.5,
+            "realized_pnl_day": -50.0,
+            "realized_pnl_week": 10.0,
+            "open_risk_pct": 1.25,
             "wins": 4,
             "losses": 2,
         }
@@ -70,6 +73,8 @@ async def test_collect_assembles_db_and_redis_samples(monkeypatch):
     assert data["newstrade_orders_total{status=\"filled\"}"] == 5
     assert data["newstrade_paper_trades_open"] == 2
     assert data["newstrade_paper_realized_pnl"] == 123.5
+    assert data["newstrade_paper_realized_pnl_day"] == -50.0
+    assert data["newstrade_paper_open_risk_pct"] == 1.25
     assert data["newstrade_trades_open"] == 1
     assert data["newstrade_channels_total"] == 101
     assert data["newstrade_channels_active{kind=\"feed\"}"] == 99

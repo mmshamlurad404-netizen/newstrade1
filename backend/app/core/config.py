@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     fcm_project_id: str = ""
     fcm_credentials_path: str = ""
 
+    alerts_enabled: bool = True
+    alert_interval_seconds: int = 60
+    alert_cooldown_seconds: int = 1800
+    alert_backlog_threshold: int = 500
+    alert_dlq_threshold: int = 50
+    alert_open_risk_pct_max: float = 5.0
+
     feed_request_timeout: float = 20.0
     feed_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

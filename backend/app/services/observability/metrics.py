@@ -7,6 +7,7 @@ from Redis. The result can be rendered as Prometheus text or JSON.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -61,7 +62,21 @@ async def _sum(session, stmt) -> float:
     return float(await session.scalar(stmt) or 0.0)
 
 
+async def _open_risk_pct(session) -> float:
+    risk_sum = await _sum(
+        session,
+        select(func.coalesce(func.sum(SignalRow.risk_pct), 0))
+        .select_from(SignalRow)
+        .join(PaperTrade, PaperTrade.signal_id == SignalRow.id)
+        .where(PaperTrade.closed_at.is_(None)),
+    )
+    return risk_sum * 100.0
+
+
 async def _paper_stats(session) -> dict[str, float]:
+    now = datetime.now(timezone.utc)
+    day_ago = now - timedelta(days=1)
+    week_ago = now - timedelta(days=7)
     return {
         "open": await _count(
             session,
@@ -81,6 +96,21 @@ async def _paper_stats(session) -> dict[str, float]:
                 PaperTrade.closed_at.is_not(None)
             ),
         ),
+        "realized_pnl_day": await _sum(
+            session,
+            select(func.coalesce(func.sum(PaperTrade.pnl), 0)).where(
+                PaperTrade.closed_at.is_not(None),
+                PaperTrade.closed_at >= day_ago,
+            ),
+        ),
+        "realized_pnl_week": await _sum(
+            session,
+            select(func.coalesce(func.sum(PaperTrade.pnl), 0)).where(
+                PaperTrade.closed_at.is_not(None),
+                PaperTrade.closed_at >= week_ago,
+            ),
+        ),
+        "open_risk_pct": await _open_risk_pct(session),
         "wins": await _count(
             session,
             select(func.count())
@@ -251,6 +281,21 @@ async def collect(session, client) -> list[Sample]:
                 "newstrade_paper_realized_pnl",
                 paper["realized_pnl"],
                 help="Realized paper PnL (quote currency)",
+            ),
+            Sample(
+                "newstrade_paper_realized_pnl_day",
+                paper["realized_pnl_day"],
+                help="Realized paper PnL over the last 24h",
+            ),
+            Sample(
+                "newstrade_paper_realized_pnl_week",
+                paper["realized_pnl_week"],
+                help="Realized paper PnL over the last 7 days",
+            ),
+            Sample(
+                "newstrade_paper_open_risk_pct",
+                paper["open_risk_pct"],
+                help="Open paper risk as percent of equity",
             ),
         ]
     )

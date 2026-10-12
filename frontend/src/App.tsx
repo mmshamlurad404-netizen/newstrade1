@@ -8,6 +8,7 @@ import { Notifications } from "./pages/Notifications";
 import { Portfolio } from "./pages/Portfolio";
 import { Settings } from "./pages/Settings";
 import { Signals } from "./pages/Signals";
+import { System } from "./pages/System";
 
 const TABS = [
   "News",
@@ -15,6 +16,7 @@ const TABS = [
   "Portfolio",
   "Channels",
   "Alerts",
+  "System",
   "Settings",
 ] as const;
 type Tab = (typeof TABS)[number];
@@ -52,6 +54,7 @@ export default function App() {
         {tab === "Portfolio" && <Portfolio />}
         {tab === "Channels" && <Channels />}
         {tab === "Alerts" && <Notifications />}
+        {tab === "System" && <System />}
         {tab === "Settings" && <Settings />}
       </main>
     </div>

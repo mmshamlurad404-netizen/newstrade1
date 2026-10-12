@@ -10,6 +10,24 @@ from app.services.notifications.dispatcher import build_notification
 from app.services.notifications.senders import LogSender
 
 
+def test_build_notification_system_alert():
+    note = build_notification(
+        {
+            "kind": "system_alert",
+            "event_type": "alert_dlq",
+            "alert": "dlq",
+            "severity": "critical",
+            "title": "Dead-letter queue growing",
+            "body": "120 failed items in the DLQ exceed 50",
+            "payload": {"dlq": 120},
+        }
+    )
+    assert note is not None
+    assert note["event_type"] == "alert_dlq"
+    assert note["signal_id"] is None
+    assert note["title"] == "Dead-letter queue growing"
+
+
 def test_build_notification_active_signal():
     note = build_notification(
         {

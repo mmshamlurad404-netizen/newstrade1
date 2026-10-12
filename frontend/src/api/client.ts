@@ -2,6 +2,7 @@ import type {
   Channel,
   Device,
   Health,
+  MetricsResponse,
   News,
   Notification,
   Portfolio,
@@ -38,6 +39,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<Health>("/api/health"),
+  metrics: () => request<MetricsResponse>("/api/metrics"),
   news: (params = "") => request<News[]>(`/api/news${params}`),
   newsDetail: (id: number) =>
     request<{ news: News; sources: Array<Record<string, unknown>> }>(

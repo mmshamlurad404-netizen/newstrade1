@@ -89,6 +89,10 @@ export interface Health {
   kill_switch: boolean;
 }
 
+export interface MetricsResponse {
+  metrics: Record<string, number>;
+}
+
 export interface Notification {
   id: number;
   channel: string;
