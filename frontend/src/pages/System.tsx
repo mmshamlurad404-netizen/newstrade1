@@ -44,6 +44,12 @@ function money(value: number): string {
   return value.toFixed(2);
 }
 
+function ago(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
+}
+
 export function System() {
   const { data, error, loading, reload } = useApi(() => api.metrics(), []);
 
@@ -64,6 +70,12 @@ export function System() {
   const backlog = STREAMS.filter(
     (s) => s.key !== "dlq" && streamLag(m, s.key) > LAG_WARN
   );
+  const hasIngestor =
+    "newstrade_ingestor_seconds_since_heartbeat" in m;
+  const ingestorFresh =
+    hasIngestor &&
+    val(m, "newstrade_ingestor_seconds_since_heartbeat") <= 120;
+  const ingestorConnected = val(m, "newstrade_ingestor_connected") === 1;
 
   return (
     <div className="stack">
@@ -95,6 +107,42 @@ export function System() {
             tone={backlog.length === 0 ? "positive" : "negative"}
           />
         </div>
+      </Panel>
+
+      <Panel title="Ingestor">
+        {!hasIngestor ? (
+          <p className="muted">No ingestor heartbeat reported yet.</p>
+        ) : (
+          <div className="stats">
+            <StatCard
+              label="Status"
+              value={ingestorFresh ? (ingestorConnected ? "up" : "disconnected") : "down"}
+              tone={
+                ingestorFresh && ingestorConnected ? "positive" : "negative"
+              }
+            />
+            <StatCard
+              label="Last heartbeat"
+              value={`${ago(
+                val(m, "newstrade_ingestor_seconds_since_heartbeat")
+              )} ago`}
+            />
+            <StatCard
+              label="Last event"
+              value={
+                "newstrade_ingestor_seconds_since_event" in m
+                  ? `${ago(
+                      val(m, "newstrade_ingestor_seconds_since_event")
+                    )} ago`
+                  : "-"
+              }
+            />
+            <StatCard
+              label="Reconnects"
+              value={String(val(m, "newstrade_ingestor_reconnects_total"))}
+            />
+          </div>
+        )}
       </Panel>
 
       <Panel title="Pipeline streams">

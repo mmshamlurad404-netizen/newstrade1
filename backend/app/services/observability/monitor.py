@@ -17,7 +17,7 @@ from app.services.observability import alerts, metrics
 
 log = get_logger("observability.monitor")
 
-_last_fired: dict[str, float] = {}
+_state = alerts.AlertState()
 
 
 def _config() -> alerts.AlertConfig:
@@ -27,6 +27,8 @@ def _config() -> alerts.AlertConfig:
         daily_loss_pct=settings.max_daily_loss_pct,
         open_risk_pct_max=settings.alert_open_risk_pct_max,
         cooldown_seconds=settings.alert_cooldown_seconds,
+        ingestor_stale_seconds=settings.alert_ingestor_stale_seconds,
+        ingestor_reconnect_spike=settings.alert_ingestor_reconnect_spike,
     )
 
 
@@ -38,7 +40,7 @@ async def run_once() -> list[alerts.Alert]:
             data,
             time.time(),
             _config(),
-            _last_fired,
+            _state,
             settings.paper_equity,
         )
         for alert in fired:

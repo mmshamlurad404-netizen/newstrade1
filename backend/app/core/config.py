@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     alert_backlog_threshold: int = 500
     alert_dlq_threshold: int = 50
     alert_open_risk_pct_max: float = 5.0
+    alert_ingestor_stale_seconds: int = 120
+    alert_ingestor_reconnect_spike: int = 5
+    ingestor_heartbeat_seconds: int = 30
 
     feed_request_timeout: float = 20.0
     feed_user_agent: str = (

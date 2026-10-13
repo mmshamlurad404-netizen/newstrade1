@@ -8,13 +8,14 @@ from Redis. The result can be rendered as Prometheus text or JSON.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import time
 
 from sqlalchemy import func, select
 
 from app.models.ingestion import Channel
 from app.models.news import News
 from app.models.trading import Order, PaperTrade, SignalRow, Trade
-from app.services.ingestion import queue
+from app.services.ingestion import health, queue
 
 STREAMS: dict[str, str] = {
     "raw_news": queue.RAW_STREAM,
@@ -216,6 +217,45 @@ async def _redis_samples(client) -> list[Sample]:
     return samples
 
 
+async def _ingestor_samples(client) -> list[Sample]:
+    state = await health.read_state(client)
+    if not state:
+        return []
+    now = time.time()
+    samples: list[Sample] = [
+        Sample(
+            "newstrade_ingestor_connected",
+            1 if state.get("connected") == "1" else 0,
+            help="Telegram ingestor connection state (1=connected)",
+        ),
+        Sample(
+            "newstrade_ingestor_reconnects_total",
+            int(state.get("reconnects") or 0),
+            type="counter",
+            help="Telegram ingestor reconnects since start",
+        ),
+    ]
+    heartbeat = state.get("heartbeat")
+    if heartbeat is not None:
+        samples.append(
+            Sample(
+                "newstrade_ingestor_seconds_since_heartbeat",
+                max(0.0, now - float(heartbeat)),
+                help="Seconds since the ingestor last reported in",
+            )
+        )
+    last_event = state.get("last_event")
+    if last_event is not None:
+        samples.append(
+            Sample(
+                "newstrade_ingestor_seconds_since_event",
+                max(0.0, now - float(last_event)),
+                help="Seconds since the ingestor last ingested a message",
+            )
+        )
+    return samples
+
+
 async def collect(session, client) -> list[Sample]:
     samples: list[Sample] = [
         Sample("newstrade_build_info", 1, help="Always 1; build marker")
@@ -344,6 +384,7 @@ async def collect(session, client) -> list[Sample]:
     )
 
     samples.extend(await _redis_samples(client))
+    samples.extend(await _ingestor_samples(client))
     return samples
 
 

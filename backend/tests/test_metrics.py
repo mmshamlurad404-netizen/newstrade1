@@ -2,10 +2,11 @@ from app.services.observability import metrics
 
 
 class FakeRedis:
-    def __init__(self, lengths=None, groups=None, fail=()):
+    def __init__(self, lengths=None, groups=None, fail=(), ingestor=None):
         self._lengths = lengths or {}
         self._groups = groups or {}
         self._fail = set(fail)
+        self._ingestor = ingestor or {}
 
     async def xlen(self, stream):
         if stream in self._fail:
@@ -16,6 +17,9 @@ class FakeRedis:
         if stream in self._fail:
             raise RuntimeError("no redis")
         return self._groups.get(stream, [])
+
+    async def hgetall(self, key):
+        return self._ingestor
 
 
 def _patch(session_val, monkeypatch):
@@ -92,6 +96,36 @@ async def test_collect_degrades_when_redis_unavailable(monkeypatch):
 
     assert data["newstrade_stream_length{stream=\"raw_news\"}"] == 0
     assert "newstrade_stream_pending{stream=\"raw_news\",group=\"pipeline\"}" not in data
+
+
+async def test_collect_includes_ingestor_state(monkeypatch):
+    _patch(None, monkeypatch)
+    import time as _time
+
+    now = _time.time()
+    redis = FakeRedis(
+        ingestor={
+            "connected": "1",
+            "reconnects": "3",
+            "heartbeat": str(now - 5),
+            "last_event": str(now - 30),
+        }
+    )
+
+    samples = await metrics.collect(None, redis)
+    data = metrics.to_dict(samples)
+
+    assert data["newstrade_ingestor_connected"] == 1
+    assert data["newstrade_ingestor_reconnects_total"] == 3
+    assert 0 <= data["newstrade_ingestor_seconds_since_heartbeat"] < 10
+    assert 25 <= data["newstrade_ingestor_seconds_since_event"] < 40
+
+
+async def test_collect_omits_ingestor_when_absent(monkeypatch):
+    _patch(None, monkeypatch)
+    redis = FakeRedis()
+    data = metrics.to_dict(await metrics.collect(None, redis))
+    assert "newstrade_ingestor_connected" not in data
 
 
 def test_render_prometheus_format():

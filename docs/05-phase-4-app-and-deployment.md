@@ -246,7 +246,8 @@ Implemented metrics (`app/services/observability/metrics.py`):
   `newstrade_paper_realized_pnl|realized_pnl_day|realized_pnl_week`,
   `newstrade_paper_open_risk_pct`,
   `newstrade_trades_open|closed_total|realized_pnl`,
-  `newstrade_channels_total|active{kind}`.
+  `newstrade_channels_total|active{kind}`,
+  `newstrade_ingestor_connected|reconnects_total|seconds_since_heartbeat|seconds_since_event`.
 - Per-call LLM token/cost logging is emitted by the analysis worker (see
   `docs/03-phase-2-analysis-and-signals.md`).
 - The dashboard **System** tab renders the JSON snapshot: pipeline stream
@@ -258,10 +259,17 @@ Alerting (`app/services/observability/alerts.py` + `monitor.py`):
   service `monitor`) evaluates the rules every `alert_interval_seconds`.
 - Rules: per-stream backlog (`alert_backlog_threshold`), DLQ growth
   (`alert_dlq_threshold`), daily loss stop (`max_daily_loss_pct` of equity),
-  and open risk above `alert_open_risk_pct_max`.
+  open risk above `alert_open_risk_pct_max`, and ingestor health
+  (`alert_ingestor_stale_seconds`, `alert_ingestor_reconnect_spike`).
 - Fired alerts are de-duplicated per key by `alert_cooldown_seconds` and
   dispatched through the notification pipeline (in-app row + device push) as
-  `alert_backlog`, `alert_dlq`, `alert_daily_loss`, `alert_risk_limit`.
+  `alert_backlog`, `alert_dlq`, `alert_daily_loss`, `alert_risk_limit`,
+  `alert_ingestor_down`, `alert_ingestor_disconnected`,
+  `alert_ingestor_reconnecting`. Clearing a condition emits `alert_recovered`.
+- The ingestor publishes connection state to the Redis hash
+  `runtime:ingestor` (connected, reconnects, heartbeat, last_event); the
+  collector turns it into `newstrade_ingestor_*` samples.
+- See the runbook `docs/18-observability-runbook.md` for triage steps.
 
 ### 5.6 Backups
 
