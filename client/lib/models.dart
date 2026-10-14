@@ -205,20 +205,90 @@ class Channel {
       );
 }
 
+class IngestionHealth {
+  final bool reported;
+  final bool connected;
+  final double? secondsSinceHeartbeat;
+  final bool stale;
+  final String status;
+
+  IngestionHealth({
+    required this.reported,
+    required this.connected,
+    this.secondsSinceHeartbeat,
+    required this.stale,
+    required this.status,
+  });
+
+  factory IngestionHealth.fromJson(Map<String, dynamic> json) => IngestionHealth(
+        reported: json['reported'] as bool? ?? false,
+        connected: json['connected'] as bool? ?? false,
+        secondsSinceHeartbeat: _toDouble(json['seconds_since_heartbeat']),
+        stale: json['stale'] as bool? ?? true,
+        status: json['status'] as String? ?? 'unknown',
+      );
+
+  bool get healthy => status == 'ok';
+}
+
 class Health {
   final String status;
   final String tradingMode;
   final bool killSwitch;
+  final IngestionHealth? ingestion;
 
   Health({
     required this.status,
     required this.tradingMode,
     required this.killSwitch,
+    this.ingestion,
   });
 
   factory Health.fromJson(Map<String, dynamic> json) => Health(
         status: json['status'] as String? ?? 'unknown',
         tradingMode: json['trading_mode'] as String? ?? 'paper',
         killSwitch: json['kill_switch'] as bool? ?? false,
+        ingestion: json['ingestion'] == null
+            ? null
+            : IngestionHealth.fromJson(
+                json['ingestion'] as Map<String, dynamic>,
+              ),
       );
+}
+
+class AppNotification {
+  final int id;
+  final String channel;
+  final String eventType;
+  final String title;
+  final String? body;
+  final String? signalId;
+  final DateTime? readAt;
+  final DateTime? createdAt;
+
+  AppNotification({
+    required this.id,
+    required this.channel,
+    required this.eventType,
+    required this.title,
+    this.body,
+    this.signalId,
+    this.readAt,
+    this.createdAt,
+  });
+
+  factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
+        id: (json['id'] as num).toInt(),
+        channel: json['channel'] as String? ?? 'inapp',
+        eventType: json['event_type'] as String? ?? 'news',
+        title: json['title'] as String? ?? '',
+        body: json['body'] as String?,
+        signalId: json['signal_id']?.toString(),
+        readAt: _toDate(json['read_at']),
+        createdAt: _toDate(json['created_at']),
+      );
+
+  bool get isRead => readAt != null;
+  bool get isRecovery => eventType == 'alert_recovered';
+  bool get isAlert => eventType.startsWith('alert_');
 }

@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     alert_ingestor_stale_seconds: int = 120
     alert_ingestor_reconnect_spike: int = 5
     ingestor_heartbeat_seconds: int = 30
+    health_check_timeout_seconds: float = 2.0
 
     feed_request_timeout: float = 20.0
     feed_user_agent: str = (

@@ -83,10 +83,19 @@ export interface Channel {
   last_seen_at: string | null;
 }
 
+export interface IngestionHealth {
+  reported: boolean;
+  connected: boolean;
+  seconds_since_heartbeat: number | null;
+  stale: boolean;
+  status: string;
+}
+
 export interface Health {
   status: string;
   trading_mode: string;
   kill_switch: boolean;
+  ingestion?: IngestionHealth;
 }
 
 export interface MetricsResponse {

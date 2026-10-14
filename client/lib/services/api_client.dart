@@ -37,6 +37,19 @@ class ApiClient {
     return jsonDecode(response.body);
   }
 
+  Future<dynamic> _post(String path, [Object? body]) async {
+    final response = await http.post(
+      _uri(path),
+      headers: _headers,
+      body: body == null ? null : jsonEncode(body),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException('${response.statusCode} ${response.reasonPhrase ?? ''}');
+    }
+    if (response.body.isEmpty) return null;
+    return jsonDecode(response.body);
+  }
+
   Future<Health> health() async {
     return Health.fromJson(await _get('/api/health') as Map<String, dynamic>);
   }
@@ -74,6 +87,29 @@ class ApiClient {
   Future<List<Channel>> channels() async {
     final data = await _get('/api/channels') as List<dynamic>;
     return data.map((e) => Channel.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<AppNotification>> notifications({
+    bool unreadOnly = false,
+    int limit = 50,
+  }) async {
+    final data = await _get('/api/notifications', {
+      'unread_only': unreadOnly.toString(),
+      'limit': '$limit',
+    }) as List<dynamic>;
+    return data
+        .map((e) => AppNotification.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<AppNotification> markNotificationRead(int id) async {
+    final data =
+        await _post('/api/notifications/$id/read') as Map<String, dynamic>;
+    return AppNotification.fromJson(data);
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await _post('/api/notifications/read-all');
   }
 
   Future<bool> killSwitch() async {

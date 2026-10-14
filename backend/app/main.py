@@ -6,6 +6,7 @@ from app.api.routes import router, ws_router
 from app.core import runtime
 from app.core.config import settings
 from app.db.session import async_session_factory
+from app.services.ingestion import health as ingestion_health
 from app.services.ingestion.queue import get_client
 from app.services.observability import metrics
 
@@ -25,10 +26,15 @@ app.include_router(ws_router)
 
 @app.get("/api/health")
 async def health() -> dict:
+    ingestion = await ingestion_health.snapshot(
+        settings.alert_ingestor_stale_seconds,
+        settings.health_check_timeout_seconds,
+    )
     return {
         "status": "ok",
         "trading_mode": settings.trading_mode,
         "kill_switch": settings.kill_switch or await runtime.get_kill_switch(),
+        "ingestion": ingestion,
     }
 
 

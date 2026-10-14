@@ -9,6 +9,7 @@ an alert fires to diagnose and remediate quickly.
 | :--- | :--- |
 | `GET /metrics` | Prometheus text exposition (unauthenticated, for scrapers) |
 | `GET /api/metrics` | JSON snapshot (token-protected, used by the System tab) |
+| `GET /api/health` | Liveness plus an `ingestion` snapshot (`reported`, `connected`, `seconds_since_heartbeat`, `stale`, `status`); the Redis read is bounded by `health_check_timeout_seconds` |
 | System tab (dashboard) | Human view of streams, ingestor, trading, and sources |
 | Notifications (Alerts tab / push) | Fired and recovered alerts |
 

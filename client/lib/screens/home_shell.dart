@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import 'channels_screen.dart';
 import 'news_feed_screen.dart';
+import 'notifications_screen.dart';
 import 'portfolio_screen.dart';
 import 'settings_screen.dart';
 import 'signals_screen.dart';
@@ -18,15 +19,35 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
-  static const _titles = ['News', 'Signals', 'Portfolio', 'Channels', 'Settings'];
+  static const _titles = [
+    'News',
+    'Signals',
+    'Portfolio',
+    'Channels',
+    'Alerts',
+    'Settings',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final health = context.watch<AppState>().health;
+    final state = context.watch<AppState>();
+    final health = state.health;
+    final ingestion = health?.ingestion;
+    final ingestionDegraded =
+        ingestion != null && ingestion.reported && !ingestion.healthy;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Newstrade - ${_titles[_index]}'),
         actions: [
+          if (ingestionDegraded)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Tooltip(
+                message: 'News ingestion degraded',
+                child: Icon(Icons.sync_problem, color: Colors.orangeAccent),
+              ),
+            ),
           if (health?.killSwitch ?? false)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
@@ -48,18 +69,28 @@ class _HomeShellState extends State<HomeShell> {
           SignalsScreen(),
           PortfolioScreen(),
           ChannelsScreen(),
+          NotificationsScreen(),
           SettingsScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.newspaper), label: 'News'),
-          NavigationDestination(icon: Icon(Icons.insights), label: 'Signals'),
-          NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Portfolio'),
-          NavigationDestination(icon: Icon(Icons.groups), label: 'Channels'),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.newspaper), label: 'News'),
+          const NavigationDestination(icon: Icon(Icons.insights), label: 'Signals'),
+          const NavigationDestination(
+              icon: Icon(Icons.account_balance_wallet), label: 'Portfolio'),
+          const NavigationDestination(icon: Icon(Icons.groups), label: 'Channels'),
+          NavigationDestination(
+            icon: Badge.count(
+              count: state.unreadCount,
+              isLabelVisible: state.unreadCount > 0,
+              child: const Icon(Icons.notifications),
+            ),
+            label: 'Alerts',
+          ),
+          const NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
     );

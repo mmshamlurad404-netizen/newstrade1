@@ -64,4 +64,58 @@ void main() {
     expect(portfolio.openPositions.single.asset, 'SOL/USDT');
     expect(portfolio.realizedPnlDay, 2.5);
   });
+
+  test('Health.fromJson parses ingestion snapshot', () {
+    final health = Health.fromJson({
+      'status': 'ok',
+      'trading_mode': 'paper',
+      'kill_switch': false,
+      'ingestion': {
+        'reported': true,
+        'connected': true,
+        'seconds_since_heartbeat': 3.5,
+        'stale': false,
+        'status': 'ok',
+      },
+    });
+
+    expect(health.ingestion, isNotNull);
+    expect(health.ingestion!.connected, isTrue);
+    expect(health.ingestion!.stale, isFalse);
+    expect(health.ingestion!.healthy, isTrue);
+  });
+
+  test('Health.fromJson tolerates missing ingestion', () {
+    final health = Health.fromJson({
+      'status': 'ok',
+      'trading_mode': 'paper',
+      'kill_switch': false,
+    });
+
+    expect(health.ingestion, isNull);
+  });
+
+  test('AppNotification.fromJson classifies recovery and alerts', () {
+    final recovered = AppNotification.fromJson({
+      'id': 1,
+      'channel': 'inapp',
+      'event_type': 'alert_recovered',
+      'title': 'Ingestion recovered',
+      'read_at': null,
+      'created_at': '2026-01-01T00:00:00Z',
+    });
+    final alert = AppNotification.fromJson({
+      'id': 2,
+      'channel': 'inapp',
+      'event_type': 'alert_ingestor_disconnected',
+      'title': 'Ingestor disconnected',
+      'read_at': '2026-01-01T01:00:00Z',
+    });
+
+    expect(recovered.isRecovery, isTrue);
+    expect(recovered.isAlert, isTrue);
+    expect(recovered.isRead, isFalse);
+    expect(alert.isRecovery, isFalse);
+    expect(alert.isRead, isTrue);
+  });
 }
